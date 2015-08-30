@@ -53,7 +53,7 @@ function nearestNeighbour(data, labels, example, k)
     return labels[minId[1][1]]
 end
 
-numTest = 10
+numTest = testSize[1]
 print(string.format('==> running %d test examples', numTest))
 prediction = torch.ByteTensor(numTest)
 progress = 0
