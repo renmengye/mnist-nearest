@@ -21,7 +21,7 @@ end
 
 ----------------------------------------------------------------------
 function nearest_neighbours.consensus(labels, labelStart, labelEnd)
-    local labelBins = torch.histc(labels:float(), labelStart - labelEnd + 1, labelStart, labelEnd)
+    local labelBins = torch.histc(labels:float(), labelEnd - labelStart + 1, labelStart, labelEnd)
     local maxBin, maxBinIdx = labelBins:max(1)
     return maxBinIdx
 end
