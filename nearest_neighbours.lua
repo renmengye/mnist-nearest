@@ -41,7 +41,7 @@ end
 function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
     logger:logInfo(string.format('Running nearest neighbours, k = %d', K))
     logger:logInfo(string.format('Running %d test examples', numTest))
-    local prediction = torch.ByteTensor(numTest)
+    local prediction = torch.LongTensor(numTest)
     local progress = 0
     for i = 1,numTest do
         prediction[i] = nearest_neighbours.runOnce(trainData, trainLabels, testData[i], K)
