@@ -1,4 +1,5 @@
 local torch = require('torch')
+local Logger = require('logger')
 local logger = Logger('utils.lua', '')
 local utils = {}
 
