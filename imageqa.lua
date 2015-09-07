@@ -12,7 +12,7 @@ trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 bestK = 0
 bestRate = 0.0
 logger:logInfo('Running on validation set')
-numTest = data.validData:size()[0]
+numTest = data.validData:size()[1]
 for k = 1,21,5 do
     local validPred = knn.runAll(
         k, data.trainData, data.trainLabel, data.validData, numTest)
@@ -27,7 +27,7 @@ logger:logInfo(string.format('Best K is %d', bestK))
 logger:logInfo(string.format('Best K is %d', bestK))
 
 logger:logInfo('Running on test set')
-numTest = data.testData:size()[0]
+numTest = data.testData:size()[1]
 local testPred = knn.runAll(
     bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
 local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
