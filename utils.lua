@@ -16,7 +16,6 @@ function utils.getBag(N, max)
     local r = torch.rand(N) * max
     local items = torch.ceil(r):long()
     return items
-
 end
 
 return utils

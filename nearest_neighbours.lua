@@ -20,20 +20,20 @@ function nearest_neighbours.distanceBatch(A, b)
 end
 
 ----------------------------------------------------------------------
-function nearest_neighbours.consensus(labels)
-    local labelBins = torch.histc(labels:float(), 10, 1, 10)
+function nearest_neighbours.consensus(labels, labelStart, labelEnd)
+    local labelBins = torch.histc(labels:float(), 10, labelStart, labelEnd)
     local maxBin, maxBinIdx = labelBins:max(1)
     return maxBinIdx
 end
 
 ----------------------------------------------------------------------
-function nearest_neighbours.runOnce(data, labels, example, k)
+function nearest_neighbours.runOnce(data, labels, labelStart, labelEnd, example, k)
     local N = data:size()[1]
     local dist = 0
     local distAll = nearest_neighbours.distanceBatch(data, example)
     local distSort, idxSort = torch.sort(distAll, 1)
     local idxSortK = idxSort:index(1, torch.range(1, k):long())
-    local pred = nearest_neighbours.consensus(labels:index(1, idxSortK[1]))
+    local pred = nearest_neighbours.consensus(labels:index(1, idxSortK[1]), labelStart, labelEnd)
     return pred
 end
 
@@ -43,8 +43,13 @@ function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
     logger:logInfo(string.format('Running %d test examples', numTest))
     local prediction = torch.LongTensor(numTest)
     local progress = 0
+    local labelStart = trainLabels:min(1)
+    local labelEnd = trainLabels:max(1)
+    logger:logInfo(string.format('Label start: %d', labelStart))
+    logger:logInfo(string.format('Label end: %d', labelEnd))
     for i = 1,numTest do
         prediction[i] = nearest_neighbours.runOnce(trainData, trainLabels, testData[i], K)
+        logger:logInfo(string.format('Prediction: %d', prediction[i]))
         collectgarbage()
         while i / numTest > progress / 80 do
             io.write('.')
