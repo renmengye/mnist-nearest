@@ -43,8 +43,8 @@ function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
     logger:logInfo(string.format('Running %d test examples', numTest))
     local prediction = torch.LongTensor(numTest)
     local progress = 0
-    local labelStart = trainLabels:min(1)
-    local labelEnd = trainLabels:max(1)
+    local labelStart = trainLabels:min()
+    local labelEnd = trainLabels:max()
     logger:logInfo(string.format('Label start: %d', labelStart))
     logger:logInfo(string.format('Label end: %d', labelEnd))
     for i = 1,numTest do
