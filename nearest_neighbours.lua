@@ -39,8 +39,8 @@ end
 
 ----------------------------------------------------------------------
 function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
-    logger.logInfo(string.format('Running nearest neighbours, k = %d', K))
-    logger.logInfo(string.format('Running %d test examples', numTest))
+    logger:logInfo(string.format('Running nearest neighbours, k = %d', K))
+    logger:logInfo(string.format('Running %d test examples', numTest))
     local prediction = torch.ByteTensor(numTest)
     local progress = 0
     for i = 1,numTest do
