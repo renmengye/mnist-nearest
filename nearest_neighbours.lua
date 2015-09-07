@@ -1,4 +1,6 @@
 local torch = require('torch')
+local Logger = require('logger')
+local logger = Logger('nearest_neighbours.lua', '')
 local nearest_neighbours = {}
 
 ----------------------------------------------------------------------
@@ -30,8 +32,6 @@ function nearest_neighbours.runOnce(data, labels, example, k)
     local dist = 0
     local distAll = nearest_neighbours.distanceBatch(data, example)
     local distSort, idxSort = torch.sort(distAll, 1)
-    -- print(distSort)
-    -- print(idxSort)
     local idxSortK = idxSort:index(1, torch.range(1, k):long())
     local pred = nearest_neighbours.consensus(labels:index(1, idxSortK[1]))
     return pred
@@ -39,13 +39,12 @@ end
 
 ----------------------------------------------------------------------
 function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
-    print(string.format('==> running nearest neighbours, k = %d', K))
-    print(string.format('==> running %d test examples', numTest))
+    logger.logInfo(string.format('Running nearest neighbours, k = %d', K))
+    logger.logInfo(string.format('Running %d test examples', numTest))
     local prediction = torch.ByteTensor(numTest)
     local progress = 0
     for i = 1,numTest do
         prediction[i] = nearest_neighbours.runOnce(trainData, trainLabels, testData[i], K)
-        --print(string.format('Example: %d, Pred: %d, GT: %d', i, prediction[i], test.labels[i]))
         collectgarbage()
         while i / numTest > progress / 80 do
             io.write('.')
