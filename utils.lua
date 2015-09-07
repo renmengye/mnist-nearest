@@ -1,11 +1,12 @@
 local torch = require('torch')
+local logger = Logger('utils.lua', '')
 local utils = {}
 
 ---------------------------------------------------------------------
 function utils.evalPrediction(prediction, labels)
     local correct = prediction:eq(labels):int():sum()
     local rate = correct / prediction:size()[1]
-    print(string.format('==> accuracy: %.5f', rate))
+    logger:logInfo(string.format('Accuracy: %.5f', rate))
     return rate
 end
 
