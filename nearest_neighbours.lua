@@ -48,7 +48,7 @@ function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
     logger:logInfo(string.format('Label start: %d', labelStart))
     logger:logInfo(string.format('Label end: %d', labelEnd))
     for i = 1,numTest do
-        prediction[i] = nearest_neighbours.runOnce(trainData, trainLabels, testData[i], K)
+        prediction[i] = nearest_neighbours.runOnce(trainData, trainLabels, labelStart, labelEnd, testData[i], K)
         logger:logInfo(string.format('Prediction: %d', prediction[i]))
         collectgarbage()
         while i / numTest > progress / 80 do
