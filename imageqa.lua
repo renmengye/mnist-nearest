@@ -12,6 +12,6 @@ numTest = 100
 for k = 1,1 do
     local validPred = knn.runAll(
         k, data.trainData, data.trainLabel, data.validData, numTest)
-    local validLabelSubset = data.validLabels:index(1, torch.range(1, numTest):long())
+    local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
     utils.evalPrediction(validPred, validLabelSubset)
 end
