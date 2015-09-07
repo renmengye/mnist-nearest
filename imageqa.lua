@@ -6,8 +6,8 @@ local logger = Logger('imageqa.lua', '')
 local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
 local data = hdf5.open(dataPath, 'r'):all()
 
-trainPlusValidData = torch.cat(data.trainData, data.validData, 0)
-trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 0)
+trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
+trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
 bestK = 0
 bestRate = 0.0
