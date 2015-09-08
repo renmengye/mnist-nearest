@@ -9,7 +9,7 @@ function utils.evalPrediction(prediction, labels)
     local rate = correct / prediction:size()[1]
     logger:logInfo(string.format('Accuracy: %.5f', rate))
     for i = 1,labels:size()[1] do
-        logger.logInfo(string.format('Label: %d, Pred: %d', labels[i], prediction[i]))
+        logger:logInfo(string.format('Label: %d, Pred: %d', labels[i], prediction[i]))
     end
     return rate
 end
