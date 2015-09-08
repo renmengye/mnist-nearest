@@ -15,7 +15,7 @@ bestRate = -1.0
 logger:logInfo('Running on validation set')
 -- numTest = data.validData:size()[1]
 numTest = 50
-for k = 1,101,20 do
+for k = 21,61,2 do
     local validPred = knn.runAll(
         k, data.trainData, data.trainLabel, data.validData, numTest)
     local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
