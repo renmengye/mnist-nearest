@@ -6,7 +6,7 @@ local knn = require('nearest_neighbours')
 -- Main
 ----------------------------------------------------------------------
 --local numTest = testSize[1]
-local numTest = 200
+local numTest = 30
 local K = 5
 local train, test = mnist.loadData()
 local trainDataResize = mnist.flattenFloat(train.data)
