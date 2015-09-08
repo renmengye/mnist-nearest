@@ -1,7 +1,7 @@
 local torch = require('torch')
 local optim = require('optim')
 local Logger = require('logger')
-local logger = Logger('nntrainer.lua', '')
+local logger = Logger()
 local nntrainer = {}
 
 ----------------------------------------------------------------------

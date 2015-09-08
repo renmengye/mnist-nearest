@@ -1,6 +1,6 @@
 local torch = require('torch')
 local Logger = require('logger')
-local logger = Logger('mnist.lua', '')
+local logger = Logger()
 local mnist = {}
 
 ----------------------------------------------------------------------

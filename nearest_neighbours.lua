@@ -1,6 +1,6 @@
 local torch = require('torch')
 local Logger = require('logger')
-local logger = Logger('nearest_neighbours.lua', '')
+local logger = Logger()
 local nearest_neighbours = {}
 
 ----------------------------------------------------------------------
@@ -23,7 +23,9 @@ end
 function nearest_neighbours.consensus(labels, labelStart, labelEnd)
     local labelBins = torch.histc(
         labels:float(), labelEnd - labelStart + 1, labelStart, labelEnd)
+    --print(labelBins)
     local maxBin, maxBinIdx = labelBins:max(1)
+    logger:logInfo(string.format('Max bin number items: %d', maxBin[1]), 2)
     return maxBinIdx
 end
 
@@ -33,12 +35,10 @@ function nearest_neighbours.runOnce(data, labels, labelStart, labelEnd, example,
     local dist = 0
     local distAll = nearest_neighbours.distanceBatch(data, example)
     local distSort, idxSort = torch.sort(distAll, 1)
-    local idxSortK = idxSort:index(1, torch.range(1, k):long())
-    -- for i = 1,20 do
-    --     print(distSort[i])
-    -- end
+    local idxSortK = idxSort:index(1, torch.range(1, k):long()):reshape(k)
     local pred = nearest_neighbours.consensus(
-        labels:index(1, idxSortK[1]), labelStart, labelEnd)
+        labels:index(1, idxSortK), labelStart, labelEnd)
+    pred = pred - 1 + labelStart
     return pred
 end
 
@@ -50,12 +50,11 @@ function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
     local progress = 0
     local labelStart = trainLabels:min()
     local labelEnd = trainLabels:max()
-    logger:logInfo(string.format('Label start: %d', labelStart))
-    logger:logInfo(string.format('Label end: %d', labelEnd))
+    logger:logInfo(string.format('Label start: %d', labelStart), 1)
+    logger:logInfo(string.format('Label end: %d', labelEnd), 1)
     for i = 1,numTest do
         prediction[i] = nearest_neighbours.runOnce(
             trainData, trainLabels, labelStart, labelEnd, testData[i], K)
-        logger:logInfo(string.format('Prediction: %d', prediction[i]))
         collectgarbage()
         while i / numTest > progress / 80 do
             io.write('.')

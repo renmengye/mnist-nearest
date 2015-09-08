@@ -5,7 +5,7 @@ local mnist = require('mnist')
 local optim = require('optim')
 local nntrainer = require('nntrainer')
 local Logger = require('logger')
-local logger = Logger('conv.lua', '')
+local logger = Logger()
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
