@@ -34,6 +34,9 @@ function nearest_neighbours.runOnce(data, labels, labelStart, labelEnd, example,
     local distAll = nearest_neighbours.distanceBatch(data, example)
     local distSort, idxSort = torch.sort(distAll, 1)
     local idxSortK = idxSort:index(1, torch.range(1, k):long())
+    for i = 1,20 do
+        print(distSort[i])
+    end
     local pred = nearest_neighbours.consensus(
         labels:index(1, idxSortK[1]), labelStart, labelEnd)
     return pred
