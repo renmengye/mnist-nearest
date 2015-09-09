@@ -24,17 +24,23 @@ cmd:text('Options:')
 cmd:option('-train', false, 'whether to train a new network')
 cmd:option('-path', 'imageqa_linear.w', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
-cmd:option('-norm', false, 'whether to have the normalized feature')
+cmd:option('-normimg', false, 'whether to have the normalized image feature')
+cmd:option('-normbow', false, 'whether to have the normalized bow feature')
 cmd:text()
 opt = cmd:parse(arg)
 
 local dataPath
-if opt.norm then
+if opt.normimg and opt.normbow then
 -- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
-    dataPath = '../../data/cocoqa-nearest/all.h5'
+    dataPath = '../../data/cocoqa-nearest/all_inorm_bnorm.h5'
+elseif opt.normbow then
+    dataPath = '../../data/cocoqa-nearest/all_iraw_bnorm.h5'
+elseif opt.normimg then
+    dataPath = '../../data/cocoqa-nearest/all_inorm_braw.h5'
 else
-    dataPath = '../../data/cocoqa-nearest/all_raw_2.h5'
+    dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
 end
+print(dataPath)
 local data = hdf5.open(dataPath, 'r'):all()
 local imgbow = '../../data/img_bow.h5'
 local init_weights = hdf5.open(imgbow, 'r'):all()
@@ -59,11 +65,13 @@ if opt.train then
         print(key)
         print(value:size())
     end
+    weights[1]:copy(init_weights.answer:index(1, torch.range(1, 4596):long()):t())
+    weights[2]:copy(init_weights.answer[4597])
 
     -- weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
     -- local weights = model:getParameters()
     -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
-    weights:copy(init_weights.answer)
+    --weights:copy(init_weights.answer)
     local trainLabel = data.trainLabel + 1
     local validLabel = data.validLabel + 1
     local testLabel = data.testLabel + 1
