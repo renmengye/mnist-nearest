@@ -38,7 +38,7 @@ end
 local data = hdf5.open(dataPath, 'r'):all()
 local imgbow = '../../data/img_bow.h5'
 local init_weights = hdf5.open(imgbow, 'r'):all()
-print(init_weights:size())
+print(init_weights.answer:size())
 
 if opt.train then
     local loopConfig = {
