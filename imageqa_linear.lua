@@ -5,7 +5,7 @@ local utils = require('utils')
 local Logger = require('logger')
 local logger = Logger()
 -- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
-local dataPath = '../../data/cocoqa-nearest/all.h5'
+local dataPath = '../../data/cocoqa-nearest/all_raw.h5'
 local data = hdf5.open(dataPath, 'r'):all()
 
 torch.manualSeed(2)
