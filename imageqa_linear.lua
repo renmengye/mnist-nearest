@@ -33,7 +33,7 @@ if opt.norm then
 -- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
     dataPath = '../../data/cocoqa-nearest/all.h5'
 else
-    dataPath = '../../data/cocoqa-nearest/all_raw.h5'
+    dataPath = '../../data/cocoqa-nearest/all_raw_2.h5'
 end
 local data = hdf5.open(dataPath, 'r'):all()
 
