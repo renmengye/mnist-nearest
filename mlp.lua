@@ -12,9 +12,10 @@ torch.setdefaulttensortype('torch.FloatTensor')
 
 function createModel()
     local model = nn.Sequential()
-    model:add(nn.Linear(1024, 100))
-    model:add(nn.ReLU())
-    model:add(nn.Linear(100, 10))
+    -- model:add(nn.Linear(1024, 100))
+    -- model:add(nn.ReLU())
+    -- model:add(nn.Linear(100, 10))
+    model:add(nn.Linear(1024, 10))
     logger:logInfo('Created model')
     print(model)
     return model
@@ -62,7 +63,3 @@ else
     local rate = nntrainer.evaluate(model, testData, testLabels, 1000)
     logger:logInfo(string.format('Test rate: %.3f', rate))
 end
-
--- gnuplot.figure(1)
--- gnuplot.title('Loss')
--- gnuplot.plot(cgtime, cgevaluations)

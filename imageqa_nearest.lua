@@ -6,15 +6,14 @@ local logger = Logger()
 -- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
 local dataPath = '../../data/cocoqa-nearest/all.h5'
 local data = hdf5.open(dataPath, 'r'):all()
+local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
+local trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
-trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
-trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
-
-bestK = 0
-bestRate = -1.0
+local bestK = 0
+local bestRate = -1.0
 logger:logInfo('Running on validation set')
 -- numTest = data.validData:size()[1]
-numTest = 50
+local numTest = 50
 for k = 21,61,2 do
     local validPred = knn.runAll(
         k, data.trainData, data.trainLabel, data.validData, numTest)
