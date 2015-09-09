@@ -4,6 +4,30 @@ local utils = require('utils')
 local Logger = require('logger')
 local logger = Logger()
 -- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
+
+local cmd = torch.CmdLine()
+cmd:text()
+cmd:text('ImageQA Nearest Neighbours')
+cmd:text()
+cmd:text('Options:')
+cmd:option('-normimg', false, 'whether to have the normalized image feature')
+cmd:option('-normbow', false, 'whether to have the normalized bow feature')
+cmd:text()
+opt = cmd:parse(arg)
+
+local dataPath
+if opt.normimg and opt.normbow then
+-- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
+    dataPath = '../../data/cocoqa-nearest/all_inorm_bnorm.h5'
+elseif opt.normbow then
+    dataPath = '../../data/cocoqa-nearest/all_iraw_bnorm.h5'
+elseif opt.normimg then
+    dataPath = '../../data/cocoqa-nearest/all_inorm_braw.h5'
+else
+    dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
+end
+
+logger:logInfo(string.format('Data: %s', dataPath))
 local dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
 local data = hdf5.open(dataPath, 'r'):all()
 local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
