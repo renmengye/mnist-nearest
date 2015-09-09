@@ -35,7 +35,11 @@ if opt.norm then
 else
     dataPath = '../../data/cocoqa-nearest/all_raw_2.h5'
 end
-local data = hdf5.open(dataPath, 'r'):all()
+local data = hdf5.open(dataPath, 'r'):read('answer'):all()
+
+local imgbow = '../../data/img_bow.h5'
+local init_weights = hdf5.open(imgbow, 'r'):read('answer'):all()
+print(init_weights:size())
 
 if opt.train then
     local loopConfig = {
@@ -50,18 +54,20 @@ if opt.train then
     local optimizer = optim.sgd
     local model = createModel()
     local weights = model:getParameters()
-    weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
+    -- weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
     -- local weights = model:getParameters()
     -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
+    weights:copy(init_weights)
     local trainLabel = data.trainLabel + 1
     local validLabel = data.validLabel + 1
     local testLabel = data.testLabel + 1
     local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
     local trainPlusValidLabel = torch.cat(trainLabel, validLabel, 1)
-    nntrainer.trainAll(
-        model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
-        loopConfig, optimizer, optimConfig)
-    if opt.save then
-        nntrainer.save(opt.path, model)
-    end
+    -- nntrainer.trainAll(
+    --     model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
+    --     loopConfig, optimizer, optimConfig)
+    -- if opt.save then
+    --     nntrainer.save(opt.path, model)
+    -- end
+    local rate = nntrainer.evaluate(model, data.testData, testLabel, 100)
 end
