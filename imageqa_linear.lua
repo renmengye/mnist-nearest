@@ -69,4 +69,5 @@ if opt.train then
     --     nntrainer.save(opt.path, model)
     -- end
     local rate = nntrainer.evaluate(model, data.testData, testLabel, 100)
+    print(rate)
 end
