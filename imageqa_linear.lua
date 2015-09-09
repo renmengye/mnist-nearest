@@ -4,9 +4,6 @@ local hdf5 = require('hdf5')
 local utils = require('utils')
 local Logger = require('logger')
 local logger = Logger()
--- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
-local dataPath = '../../data/cocoqa-nearest/all_raw.h5'
-local data = hdf5.open(dataPath, 'r'):all()
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
@@ -27,8 +24,18 @@ cmd:text('Options:')
 cmd:option('-train', false, 'whether to train a new network')
 cmd:option('-path', 'imageqa_linear.w', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
+cmd:option('-norm', false, 'whether to have the normalized feature')
 cmd:text()
 opt = cmd:parse(arg)
+
+local dataPath
+if opt.norm then
+-- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
+    dataPath = '../../data/cocoqa-nearest/all.h5'
+else
+    dataPath = '../../data/cocoqa-nearest/all_raw.h5'
+end
+local data = hdf5.open(dataPath, 'r'):all()
 
 if opt.train then
     local loopConfig = {
@@ -42,6 +49,10 @@ if opt.train then
     }
     local optimizer = optim.sgd
     local model = createModel()
+    local weights = model:getParameters()
+    weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
+    -- local weights = model:getParameters()
+    -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
     local trainLabel = data.trainLabel + 1
     local validLabel = data.validLabel + 1
     local testLabel = data.testLabel + 1

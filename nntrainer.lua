@@ -16,6 +16,7 @@ function nntrainer.forwardOnce(model, x, labels)
 end
 
 ----------------------------------------------------------------------
+----- Add gradient clipping here
 function nntrainer.getEval(model, x, labels, w, dl_dw)
     local feval = function(w_new)
         if w ~= w_new then
