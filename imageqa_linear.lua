@@ -35,8 +35,7 @@ if opt.norm then
 else
     dataPath = '../../data/cocoqa-nearest/all_raw_2.h5'
 end
-local data = hdf5.open(dataPath, 'r'):read('answer'):all()
-
+local data = hdf5.open(dataPath, 'r'):all()
 local imgbow = '../../data/img_bow.h5'
 local init_weights = hdf5.open(imgbow, 'r'):all()
 print(init_weights:size())
