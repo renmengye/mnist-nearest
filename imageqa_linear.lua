@@ -65,24 +65,24 @@ if opt.train then
         print(key)
         print(value:size())
     end
-    weights[1]:copy(init_weights.answer:index(1, torch.range(1, 4596):long()):t())
-    weights[2]:copy(init_weights.answer[4597])
+    
+    -- weights[1]:copy(init_weights.answer:index(1, torch.range(1, 4596):long()):t())
+    -- weights[2]:copy(init_weights.answer[4597])
 
-    -- weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
-    -- local weights = model:getParameters()
-    -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
-    --weights:copy(init_weights.answer)
+    local weights = model:getParameters()
+    weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
+
     local trainLabel = data.trainLabel + 1
     local validLabel = data.validLabel + 1
     local testLabel = data.testLabel + 1
     local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
     local trainPlusValidLabel = torch.cat(trainLabel, validLabel, 1)
-    -- nntrainer.trainAll(
-    --     model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
-    --     loopConfig, optimizer, optimConfig)
-    -- if opt.save then
-    --     nntrainer.save(opt.path, model)
-    -- end
+    nntrainer.trainAll(
+        model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
+        loopConfig, optimizer, optimConfig)
+    if opt.save then
+        nntrainer.save(opt.path, model)
+    end
     local rate = nntrainer.evaluate(model, data.testData, testLabel, 100)
-    print(rate)
+    logger:logInfo(string.format('Accuracy: %.4f', rate))
 end
