@@ -38,7 +38,7 @@ end
 local data = hdf5.open(dataPath, 'r'):read('answer'):all()
 
 local imgbow = '../../data/img_bow.h5'
-local init_weights = hdf5.open(imgbow, 'r'):read('answer'):all()
+local init_weights = hdf5.open(imgbow, 'r'):all()
 print(init_weights:size())
 
 if opt.train then
@@ -57,7 +57,7 @@ if opt.train then
     -- weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
     -- local weights = model:getParameters()
     -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
-    weights:copy(init_weights)
+    weights:copy(init_weights.answer)
     local trainLabel = data.trainLabel + 1
     local validLabel = data.validLabel + 1
     local testLabel = data.testLabel + 1
