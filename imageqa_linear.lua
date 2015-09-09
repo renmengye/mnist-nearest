@@ -53,6 +53,13 @@ if opt.train then
     local optimizer = optim.sgd
     local model = createModel()
     local weights = model:getParameters()
+
+    local weights = model:parameters()
+    for key,value in pairs(weights) do
+        print(key)
+        print(value:size())
+    end
+
     -- weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
     -- local weights = model:getParameters()
     -- weights:copy(torch.rand(weights:size()) * 0.001 - 0.0005)
