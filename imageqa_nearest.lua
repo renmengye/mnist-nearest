@@ -74,10 +74,11 @@ cmd:text()
 cmd:text('Options:')
 cmd:option('-normimg', false, 'whether to have the normalized image feature')
 cmd:option('-normbow', false, 'whether to have the normalized bow feature')
-cmd:option('-use_trained_word_embed', false, 'Whether to use trained word embedding as BOW feature vector')
+cmd:option('-trained_word_embed', false, 'Whether to use trained word embedding as BOW feature vector')
 
 -- This should be better but may perform worse on smaller dataset like COCO-QA
-cmd:option('-use_two_fold_nearest_neighbour', false, 'Whether to search for the nearest image first')
+cmd:option('-image_only', false, 'Only run on image features')
+cmd:option('-text_only', false, 'Only run on BOW vectors')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -108,9 +109,34 @@ print(getOneHot(x, 10))
 print(getOneHotBOW(x, 10))
 
 local data
-if opt.use_trained_word_embed then
-    data = dataImgFeatureBowFeature
+if opt.trained_word_embed then
+    -- Right now it is one-fold with image feature only
+    if opt.image_only then
+        logger:logInfo('Use image features only')
+        data = {
+            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
+            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
+            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
+            trainLabel = dataImgFeatureBowFeature.trainLabel,
+            validLabel = dataImgFeatureBowFeature.validLabel,
+            testLabel = dataImgFeatureBowFeature.testLabel
+        }
+    elseif opt.text_only then
+        logger:logInfo('Use text features only')
+        data = {
+            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(4097, 4596):long()),
+            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(4097, 4596):long()),
+            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(4097, 4596):long()),
+            trainLabel = dataImgFeatureBowFeature.trainLabel,
+            validLabel = dataImgFeatureBowFeature.validLabel,
+            testLabel = dataImgFeatureBowFeature.testLabel
+        }
+    else
+        logger:logInfo('Use trained word embedding')
+        data = dataImgFeatureBowFeature
+    end
 else
+    logger:logInfo('Use one-hot BOW vector')
     local numVocab = 9738
     local trainWordId = dataImgIdBowId.trainData:index(2, torch.range(2, dataImgIdBowId.trainData:size()[2]):long()):long()
     local trainBow = getOneHotBOW(trainWordId, 9738)
@@ -120,29 +146,43 @@ else
 
     local testWordId = dataImgIdBowId.testData:index(2, torch.range(2, dataImgIdBowId.testData:size()[2]):long()):long()
     local testBow = getOneHotBOW(testWordId, 9738)
-    local dataImgFeatureBowId = {
-        trainData = torch.cat(dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
-                              trainBow, 2),
-        validData = torch.cat(dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
-                              validBow, 2),
-        testData = torch.cat(dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
-                             testBow, 2),
-        trainLabel = dataImgIdBowId.trainLabel,
-        validLabel = dataImgIdBowId.validLabel,
-        testLabel = dataImgIdBowId.testLabel
-    }
-    data = dataImgFeatureBowId
-    for key,value in pairs(dataImgFeatureBowId) do
-        print(key)
-        print(value:size())
+    if opt.image_only then
+        logger:logInfo('Use image features only')
+        data = {
+            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
+            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
+            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
+            trainLabel = dataImgFeatureBowFeature.trainLabel,
+            validLabel = dataImgFeatureBowFeature.validLabel,
+            testLabel = dataImgFeatureBowFeature.testLabel
+        }
+    elseif opt.text_only then
+        data = {
+            trainData = trainBow,
+            validData = validBow,
+            testData = testBow,
+            trainLabel = dataImgIdBowId.trainLabel,
+            validLabel = dataImgIdBowId.validLabel,
+            testLabel = dataImgIdBowId.testLabel
+        }
+    else
+        data = {
+            trainData = torch.cat(dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
+                                  trainBow, 2),
+            validData = torch.cat(dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
+                                  validBow, 2),
+            testData = torch.cat(dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
+                                 testBow, 2),
+            trainLabel = dataImgIdBowId.trainLabel,
+            validLabel = dataImgIdBowId.validLabel,
+            testLabel = dataImgIdBowId.testLabel
+        }
+        for key,value in pairs(data) do
+            print(key)
+            print(value:size())
+        end
     end
-    collectgarbage()
 end
 
+collectgarbage()
 run(data)
-
--- if not opt.use_trained_word_embed then
---     run(dataImgFeatureBowFeature)
--- else
---     run(dataImgFeatureBowId)
--- end
