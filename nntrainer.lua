@@ -85,8 +85,8 @@ function nntrainer.evaluate(model, data, labels, batchSize)
     local N = data:size()[1]
     local correct = 0
     model:evaluate()
-    for step=1,nntrainer.getBatchIter(N, batchSize) do
-        xBatch, labelBatch = nntrainer.getBatch(data, labels, batchSize, step)
+    for xBatch, labelBatch in nntrainer.getBatchIterator(
+            data, labels, batchSize, false) do
         local _, correctBatch = nntrainer.forwardOnce(model, xBatch, labelBatch)
         correct = correct + correctBatch
     end
