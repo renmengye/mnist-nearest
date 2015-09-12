@@ -33,21 +33,36 @@ function nntrainer.getEval(model, x, labels, w, dl_dw)
 end
 
 ----------------------------------------------------------------------
-function nntrainer.getBatch(data, labels, batchSize, batchId)
-    local numData = data:size()[1]
-    local startIdx = batchSize * (batchId - 1) + 1
-    local endIdx = batchSize * batchId
-    if endIdx > numData then
-        endIdx = numData
+function nntrainer.getBatchIterator(data, labels, batchSize, progress)
+    if progress == nil then
+        progress = true
     end
-    local xBatch = data:index(1, torch.range(startIdx, endIdx):long())
-    local labelBatch = labels:index(1, torch.range(startIdx, endIdx):long())
-    return xBatch, labelBatch
-end
-
-----------------------------------------------------------------------
-function nntrainer.getBatchIter(N, batchSize)
-    return torch.ceil(N / batchSize)
+    local step = 0
+    local numData = data:size()[1]
+    local numSteps = torch.ceil(numData / batchSize)
+    local numDots = 0
+    return function()
+               if step < numSteps then
+                   local startIdx = batchSize * step + 1
+                   local endIdx = batchSize * (step + 1)
+                   if endIdx > numData then
+                       endIdx = numData
+                   end
+                   local xBatch = data:index(
+                       1, torch.range(startIdx, endIdx):long())
+                   local labelBatch = labels:index(
+                       1, torch.range(startIdx, endIdx):long())
+                   step = step + 1
+                   if progress then
+                       while (step / numSteps) > (numDots / 80) do
+                           io.write('.')
+                           io.flush()
+                           numDots = numDots + 1
+                       end
+                   end
+                   return xBatch, labelBatch
+               end
+           end
 end
 
 ----------------------------------------------------------------------
@@ -55,8 +70,8 @@ function nntrainer.trainEpoch(model, data, labels, batchSize, w, dl_dw, optimize
     local epochCost = 0
     local N = data:size()[1]
     model:training()
-    for step = 1,nntrainer.getBatchIter(N, batchSize) do
-        xBatch, labelBatch = nntrainer.getBatch(data, labels, batchSize, step)
+    for xBatch, labelBatch in nntrainer.getBatchIterator(
+        data, labels, batchSize) do
         _, cost = optimizer(
             nntrainer.getEval(model, xBatch, labelBatch, w, dl_dw), 
             w, optimConfig, state)

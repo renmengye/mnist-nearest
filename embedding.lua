@@ -12,10 +12,23 @@ function Embedding:__init(inputSize, outputSize, initWeight)
 end
 
 function Embedding:updateOutput(input)
-    self.output:resize(input:size(1), self.outputSize)
-    for i = 1, input:size(1) do
-        self.output[i]:copy(self.weight[input[i]])
+    local inputShape = input:size()
+    local outputShape = torch.LongStorage(inputShape:size() + 1)
+    for i = 1, inputShape:size() do
+        outputShape[i] = inputShape[i]
     end
+    outputShape[inputShape:size() + 1] = self.outputSize
+    input = input:reshape(input:numel())
+    self.output:resize(input:numel(), self.outputSize)
+    for i = 1, input:numel() do
+        -- A little hack for now
+        if input[i] > 0 then
+            self.output[i]:copy(self.weight[input[i]])
+        else
+            self.output[i]:copy(torch.Tensor(self.outputSize):zero())
+        end
+    end
+    self.output = self.output:reshape(outputShape)
     return self.output
 end
 
@@ -31,9 +44,13 @@ function Embedding:accGradParameters(input, gradOutput, scale)
     if scale == 0 then
         self.gradWeight:zero()
     end
-    for i = 1, input:size(1) do
-        local word = input[i]
-        self.gradWeight[word]:add(gradOutput[i])
+    input = input:reshape(input:numel())
+    gradOutput = gradOutput:reshape(input:numel(), self.outputSize)
+    for i = 1, input:numel() do
+        if input[i] > 0 then
+            local word = input[i]
+            self.gradWeight[word]:add(gradOutput[i])
+        end
     end
 end
 
