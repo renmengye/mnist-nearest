@@ -8,13 +8,21 @@ local logger = Logger()
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
-function createModel()
-    model = nn.Sequential()
-    model:add(nn.Linear(4596, 431))
-    logger:logInfo('Created model')
-    print(model)
-    return model
-end
+-- function createModel()
+--     local model = nn.Sequential()
+--     model:add(nn.Linear(4596, 431))
+--     logger:logInfo('Created model')
+--     print(model)
+--     return model
+-- end
+
+-- function createModel()
+--     local model = nn.Sequential()
+--     local input = nn.Identity()
+--     local imgSel = nn.Select(2, 1)
+--     local imgSelOneHot = nn.OneHot()(imgSel)
+--     local txtSel = nn.Select(2, {2, 56})
+--     local txtSelOneHOt = nn.OneHot()
 
 local cmd = torch.CmdLine()
 cmd:text()

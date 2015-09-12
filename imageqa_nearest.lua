@@ -157,6 +157,7 @@ else
             testLabel = dataImgFeatureBowFeature.testLabel
         }
     elseif opt.text_only then
+        logger:logInfo('Use text features only')
         data = {
             trainData = trainBow,
             validData = validBow,
