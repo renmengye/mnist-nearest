@@ -94,7 +94,16 @@ function nntrainer.evaluate(model, data, labels, batchSize)
 end
 
 ----------------------------------------------------------------------
-function nntrainer.trainAll(model, trainData, trainLabels, testData, testLabels, loopConfig, optimizer, optimConfig)
+function nntrainer.trainAll(model, trainData, trainLabels, testData, testLabels, loopConfig, optimizer, optimConfig, cuda)
+    if cuda then
+        require('cutorch')
+        require('cunn')
+        local m = nn.Sequential()
+        m.add(nn.Copy('torch.FloatTensor', 'torch.CudaTensor'))
+        m.add(model:cuda())
+        m.add(nn.Copy('torch.CudaTensor', 'torch.FloatTensor'))
+        model = m
+    end
     local state = {}
     local w, dl_dw = model:getParameters()
     for epoch=1,loopConfig.numEpoch do

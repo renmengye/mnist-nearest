@@ -1,7 +1,11 @@
 local Embedding, parent = torch.class('nn.Embedding', 'nn.Module')
 
-function Embedding:__init(inputSize, outputSize, initWeight)
+function Embedding:__init(inputSize, outputSize, initWeight, isTraining)
     parent.__init(self)
+    if isTraining == nil then
+        isTraining = true
+    end
+    self.isTraining = training
     self.outputSize = outputSize
     if initWeight ~= nil then
         self.weight = initWeight
@@ -44,12 +48,14 @@ function Embedding:accGradParameters(input, gradOutput, scale)
     if scale == 0 then
         self.gradWeight:zero()
     end
-    input = input:reshape(input:numel())
-    gradOutput = gradOutput:reshape(input:numel(), self.outputSize)
-    for i = 1, input:numel() do
-        if input[i] > 0 then
-            local word = input[i]
-            self.gradWeight[word]:add(gradOutput[i])
+    if self.isTraining then
+        input = input:reshape(input:numel())
+        gradOutput = gradOutput:reshape(input:numel(), self.outputSize)
+        for i = 1, input:numel() do
+            if input[i] > 0 then
+                local word = input[i]
+                self.gradWeight[word]:add(gradOutput[i])
+            end
         end
     end
 end

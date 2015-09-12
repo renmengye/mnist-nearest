@@ -1,7 +1,7 @@
 local torch = require('torch')
 local nn = require('nn')
 local nngraph = require('nngraph')
-include 'embedding.lua'
+-- include 'embedding.lua'
 local hdf5 = require('hdf5')
 local nntrainer = require('nntrainer')
 local Logger = require('logger')
@@ -11,49 +11,70 @@ torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
 wordLength = 55
--- vocabSize = 97
--- numImages = 120
-vocabSize = 9738
+vocabSize = 9739
 numImages = 123287
-imageFeatLength = 4096
+imgFeatLength = 4096
 wordVecLength = 500
 
-function createModel(imgFeat)
+function createModel()
     local input = nn.Identity()()
-    torch.setdefaulttensortype('torch.LongTensor')
-    -- (B, 56) -> (B, 1)
-    local imgSel = nn.Select(2, 1)(input)
+    -- (B, 4151) -> (B, 4096)
+    local imgSel = nn.Narrow(2, 1, imgFeatLength)(input)
     -- (B, 56) -> (B, 55)
-    local txtSel = nn.Narrow(2, 2, wordLength)(input)
-    torch.setdefaulttensortype('torch.FloatTensor')
-    -- (B, 1) -> (B, 4096)
-    local imgEmbedding = nn.Embedding(numImages, imageFeatLength, imgFeat)(imgSel)
+    local txtSel = nn.Narrow(2, 4097, wordLength)(input)
     -- (B, 55) -> (B, 55, 500)
-    local txtEmbedding = nn.Embedding(vocabSize, wordVecLength)(txtSel)
+    local txtEmbedding = nn.LookupTable(vocabSize, wordVecLength)(txtSel)
     -- (B, 55, 500) -> (B, 500)
     local bow = nn.Sum(2)(txtEmbedding)
     -- (B, 4096) + (B, 500) -> (B, 4596)
-    local imgtxtConcat = nn.JoinTable(2, 2)({imgEmbedding, bow})
+    local imgtxtConcat = nn.JoinTable(2, 2)({imgSel, bow})
     -- (B, 4596) -> (B, 431)
-    local answer = nn.Linear(imageFeatLength + wordVecLength, 431)(imgtxtConcat)
+    local answer = nn.Linear(imgFeatLength + wordVecLength, 431)(imgtxtConcat)
     return nn.gModule({input}, {answer})
 end
 
-logger:logInfo('Loading dataset')
-local dataPath = '../../data/cocoqa-nearest/all_id.h5'
-local data = hdf5.open(dataPath, 'r'):all()
-local trainLabel = data.trainLabel + 1
-local validLabel = data.validLabel + 1
-local testLabel = data.testLabel + 1
-local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
-local trainPlusValidLabel = torch.cat(trainLabel, validLabel, 1)
+local cmd = torch.CmdLine()
+cmd:text()
+cmd:text('ImageQA IMG+BOW Training')
+cmd:text()
+cmd:text('Options:')
+cmd:option('-train', false, 'whether to train a new network')
+cmd:option('-path', 'imageqa_img_bow.w', 'save network path')
+cmd:option('-save', false, 'whether to save the trained network')
+cmd:option('-gpu', false, 'whether to run on GPU')
+cmd:text()
+opt = cmd:parse(arg)
 
-logger:logInfo('Loading image features')
-local imgFeatPath = '../../data/hidden_oxford_dense.h5'
-local imgFeat = hdf5.open(imgFeatPath, 'r'):all()
+if opt.gpu then
+    require('cutorch')
+    require('cunn')
+end
+
+logger:logInfo('Loading dataset')
+local dataPath = '../../data/cocoqa-nearest/all_id_unk.h5'
+local data = hdf5.open(dataPath, 'r'):all()
+
+logger:logInfo('Loading image feature')
+local dataImgPath = '../../data/cocoqa-nearest/img_feat.h5'
+local dataImg = hdf5.open(dataImgPath, 'r'):all()
+
+data.trainData = data.trainData[{{}, {2, 56}}]
+data.validData = data.validData[{{}, {2, 56}}]
+data.testData = data.testData[{{}, {2, 56}}]
+
+data.trainData = data.trainData:float()
+data.validData = data.validData:float()
+data.testData = data.testData:float()
+
+data.trainData = torch.cat(dataImg.train, data.trainData, 2)
+data.validData = torch.cat(dataImg.valid, data.validData, 2)
+data.testData = torch.cat(dataImg.test, data.testData, 2)
+
+data.allData = torch.cat(data.trainData, data.validData, 1)
+data.allLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
 logger:logInfo('Creating model')
-local model = createModel(imgFeat.hidden7)
+local model = createModel()
 
 -- graph.dot(g.fg, 'Forward Graph', 'fg')
 -- graph.dot(g.bg, 'Backward Graph', 'bg')
@@ -71,5 +92,5 @@ local optimizer = optim.sgd
 
 logger:logInfo('Start training')
 nntrainer.trainAll(
-    model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
-    loopConfig, optimizer, optimConfig)
+    model, data.allData, data.allLabel, data.testData, data.testLabel, 
+    loopConfig, optimizer, optimConfig, opt.gpu)
