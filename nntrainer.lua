@@ -27,14 +27,20 @@ function nntrainer.getEval(model, x, labels, w, dl_dw, gradientClip)
         local pred = model:forward(x)
         local loss = criterion:forward(pred, labels)
         model:backward(x, criterion:backward(pred, labels))
+
+        logger:logInfo(string.format('Before clip: %.4f', torch.norm(dl_dw)), 2)
         if gradientClip then
-            norm =  torch.sqrt(dl_dw:cmul(dl_dw):sum())
-            logger:logInfo(string.format('Gradient norm: %.4f', norm), 2)
-            if norm > gradientClip then
-                logger:logInfo('Gradient clipping', 2)
-                dl_dw = dl_dw / norm * gradientClip
-            end
+            dl_dw:copy(gradientClip(dl_dw))
         end
+        logger:logInfo(string.format('After clip: %.4f', torch.norm(dl_dw)), 2)
+        -- if gradientClip then
+        --     norm =  torch.sqrt(dl_dw:cmul(dl_dw):sum())
+        --     logger:logInfo(string.format('Gradient norm: %.4f', norm), 2)
+        --     if norm > gradientClip then
+        --         logger:logInfo('Gradient clipping', 2)
+        --         dl_dw:copy(dl_dw / norm * gradientClip)
+        --     end
+        -- end
         return loss, dl_dw
     end
     return feval

@@ -10,6 +10,7 @@ torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 torch.setnumthreads(4)
 
+-- Hyper-parameters
 wordLength = 55
 vocabSize = 9739
 numImages = 123287
@@ -17,8 +18,15 @@ imgFeatLength = 4096
 wordVecLength = 500
 numClasses = 431
 wordEmbedInitRange = 1.0
-linearInitRange = 0.01
+wordEmbedLearningRate = 0.8
+wordEmbedGradientClip = 0.1
+answerInitRange = 0.01
+answerLearningRate = 0.01
+answerGradientClip = 0.1
+answerWeightDecay = 0.00005
+momentum = 0.9
 
+-- Model architecture
 function createModel()
     local input = nn.Identity()()
     -- (B, 4151) -> (B, 4096)
@@ -29,7 +37,6 @@ function createModel()
     local txtEmbeddingLayer = nn.LookupTable(vocabSize, wordVecLength)
     txtEmbeddingLayer.weight:copy(
         torch.rand(vocabSize, wordVecLength) * wordEmbedInitRange - wordEmbedInitRange / 2)
-    local txtEmbeddingWeights = txtEmbeddingLayer.weight
     txtEmbedding = txtEmbeddingLayer(txtSel)
     -- (B, 55, 500) -> (B, 500)
     local bowLayer = nn.Sum(2)
@@ -38,15 +45,14 @@ function createModel()
     local imgtxtConcat = nn.JoinTable(2, 2)({bow, imgSel})
     -- (B, 4596) -> (B, 431)
     local answerLayer = nn.Linear(imgFeatLength + wordVecLength, numClasses)
-    local answerWeights =  answerLayer.weight
-    local answerBias = answerLayer.bias
     answerLayer.weight:copy(
-        torch.rand(imgFeatLength + wordVecLength, numClasses) * linearInitRange - linearInitRange / 2)
-    answerLayer.bias:copy(torch.rand(numClasses) * linearInitRange - linearInitRange / 2)
+        torch.rand(imgFeatLength + wordVecLength, numClasses) * answerInitRange - answerInitRange / 2)
+    answerLayer.bias:copy(torch.rand(numClasses) * answerInitRange - answerInitRange / 2)
     local answer = answerLayer(imgtxtConcat)
-    return nn.gModule({input}, {answer}), txtEmbeddingWeights, answerWeights, answerBias, txtEmbeddingLayer, bowLayer, answerLayer
+    return nn.gModule({input}, {answer})
 end
 
+-- Command line options
 local cmd = torch.CmdLine()
 cmd:text()
 cmd:text('ImageQA IMG+BOW Training')
@@ -64,6 +70,7 @@ if opt.gpu then
     require('cunn')
 end
 
+-- Load data
 logger:logInfo('Loading dataset')
 local dataPath = '../../data/cocoqa-nearest/all_id_unk.h5'
 local data = hdf5.open(dataPath, 'r'):all()
@@ -84,7 +91,7 @@ data.allData = torch.cat(data.trainData, data.validData, 1)
 data.allLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
 logger:logInfo('Creating model')
-local model, txtEmbeddingWeights, answerWeights, answerBias, txtEmbeddingLayer, bowLayer, answerLayer = createModel()
+local model = createModel()
 
 -- graph.dot(g.fg, 'Forward Graph', 'fg')
 -- graph.dot(g.bg, 'Backward Graph', 'bg')
@@ -95,21 +102,56 @@ local loopConfig = {
     evalBatchSize = 1000
 }
 
-local learningRates = torch.Tensor(model:getParameters():size()):zero()
-learningRates:fill(0.01)
-learningRates[{{1, txtEmbeddingWeights:numel()}}]:fill(0.8)
+-- Helper function to slice the entire vector
+local function sliceLayer(vector, name)
+    if name == 'txtEmbedding' then
+        return vector[{{1, vocabSize * wordVecLength}}]
+    elseif name == 'answer' then
+        return vector[{{vocabSize * wordVecLength + 1, vector:numel()}}]
+    else
+        logger:logError(string.format('No layer with name %s found', name))
+    end
+end
 
+-- Set up different learning rates for each layer
+local learningRates = torch.Tensor(model:getParameters():size()):zero()
+learningRates:fill(answerLearningRate)
+sliceLayer(learningRates, 'txtEmbedding'):fill(wordEmbedLearningRate)
+
+-- Set up different weight decays for each layer
 local weightDecays = torch.Tensor(model:getParameters():size()):zero()
 weightDecays:fill(0.0)
-weightDecays[{{txtEmbeddingWeights:numel() + 1, weightDecays:numel()}}]:fill(0.00005)
+sliceLayer(weightDecays, 'answer'):fill(answerWeightDecay)
 
+-- Set up different gradient clipping for each layer
+local gradientClip = function(dl_dw)
+    function clip(x, cnorm)
+        xnorm = torch.norm(x)
+        logger:logInfo(string.format('Gradient norm: %.4f', xnorm), 2)
+        if xnorm > cnorm then
+            return x / xnorm * cnorm
+        else
+            return x
+        end
+    end
+    dl_dw_clipped = torch.Tensor(dl_dw:size()):zero()
+    txtEmbeddingGrad = sliceLayer(dl_dw, 'txtEmbedding')
+    sliceLayer(dl_dw_clipped, 'txtEmbedding'):copy(
+        clip(txtEmbeddingGrad, wordEmbedGradientClip))
+    answerGrad = sliceLayer(dl_dw, 'answer')
+    sliceLayer(dl_dw_clipped, 'answer'):copy(
+        clip(answerGrad, answerGradientClip))
+    return dl_dw_clipped
+end
+
+-- Construct optimizer configs
 local optimConfig = {
     learningRate = 1.0,
-    momentum = 0.9,
+    momentum = momentum,
     learningRates = learningRates,
     weightDecay = 0.0,
     weightDecays = weightDecays,
-    gradientClip = 0.1
+    gradientClip = gradientClip
 }
 
 local optimizer = optim.sgd
