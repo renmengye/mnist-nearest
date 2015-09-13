@@ -17,7 +17,7 @@ end
 
 ----------------------------------------------------------------------
 ----- Add gradient clipping here
-function nntrainer.getEval(model, x, labels, w, dl_dw)
+function nntrainer.getEval(model, x, labels, w, dl_dw, gradientClip)
     local feval = function(w_new)
         if w ~= w_new then
             w:copy(w_new)
@@ -27,6 +27,14 @@ function nntrainer.getEval(model, x, labels, w, dl_dw)
         local pred = model:forward(x)
         local loss = criterion:forward(pred, labels)
         model:backward(x, criterion:backward(pred, labels))
+        if gradientClip then
+            norm =  dl_dw:cmul(dl_dw):sum()
+            logger:logInfo(string.format('Gradient norm: %.4f', norm), 2)
+            if norm > gradientClip then
+                logger:logInfo('Gradient clipping', 2)
+                dl_dw = dl_dw / norm
+            end
+        end
         return loss, dl_dw
     end
     return feval
@@ -73,9 +81,10 @@ function nntrainer.trainEpoch(model, data, labels, batchSize, w, dl_dw, optimize
     for xBatch, labelBatch in nntrainer.getBatchIterator(
         data, labels, batchSize) do
         _, cost = optimizer(
-            nntrainer.getEval(model, xBatch, labelBatch, w, dl_dw), 
+            nntrainer.getEval(model, xBatch, labelBatch, w, dl_dw, optimConfig.gradientClip), 
             w, optimConfig, state)
         epochCost = epochCost + cost[1] / xBatch:size()[1]
+        collectgarbage()
     end
     return epochCost
 end
@@ -117,6 +126,9 @@ function nntrainer.trainAll(model, trainData, trainLabels, testData, testLabels,
         logger:logInfo(string.format(
             'n: %-2d l: %-6.3f tr: %.3f hr: %.3f', 
             epoch, trainLoss, trainRate, testRate))
+        for key, value in pairs(state) do
+            print(key)
+        end
     end
 end
 
