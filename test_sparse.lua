@@ -97,7 +97,7 @@ local model = createModel()
 -- graph.dot(g.bg, 'Backward Graph', 'bg')
 
 local loopConfig = {
-    numEpoch = 15,
+    numEpoch = 100,
     trainBatchSize = 64,
     evalBatchSize = 1000
 }
