@@ -91,19 +91,25 @@ local model, txtEmbeddingWeights, answerWeights, answerBias, txtEmbeddingLayer, 
 
 local loopConfig = {
     numEpoch = 15,
-    trainBatchSize = 20,
+    trainBatchSize = 64,
     evalBatchSize = 1000
 }
 
 local learningRates = torch.Tensor(model:getParameters():size()):zero()
-learningRates:fill(1)
-learningRates[{{1, txtEmbeddingWeights:numel()}}]:fill(80)
+learningRates:fill(0.01)
+learningRates[{{1, txtEmbeddingWeights:numel()}}]:fill(0.8)
+
+local weightDecays = torch.Tensor(model:getParameters():size()):zero()
+weightDecays:fill(0.0)
+weightDecays[{{txtEmbeddingWeights:numel() + 1, weightDecays:numel()}}]:fill(0.00005)
 
 local optimConfig = {
-    learningRate = 0.01,
+    learningRate = 1.0,
     momentum = 0.9,
     learningRates = learningRates,
-    gradientClip = 1.0
+    weightDecay = 0.0,
+    weightDecays = weightDecays,
+    gradientClip = 0.1
 }
 
 local optimizer = optim.sgd
