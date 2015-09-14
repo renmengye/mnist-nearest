@@ -15,8 +15,8 @@ function run(data)
     local bestRate = -1.0
     logger:logInfo('Running on validation set')
     -- numTest = data.validData:size()[1]
-    local numTest = 50
-    for k = 21,61,2 do
+    local numTest = 200
+    for k = 1,61,2 do
         local validPred = knn.runAll(
             k, data.trainData, data.trainLabel, data.validData, numTest)
         local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
@@ -26,7 +26,6 @@ function run(data)
             bestK = k
         end
     end
-    logger:logInfo(string.format('Best K is %d', bestK))
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
