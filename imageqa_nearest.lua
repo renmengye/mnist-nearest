@@ -103,9 +103,9 @@ for key, value in pairs(dataImgIdBowId) do
     print(value:size())
 end
 
-local x = torch.Tensor({{1,2,3,4}, {5,6,7,8}}):long()
-print(getOneHot(x, 10))
-print(getOneHotBOW(x, 10))
+-- local x = torch.Tensor({{1,2,3,4}, {5,6,7,8}}):long()
+-- print(getOneHot(x, 10))
+-- print(getOneHotBOW(x, 10))
 
 local data
 if opt.trained_word_embed then
