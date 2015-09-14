@@ -33,14 +33,6 @@ function nntrainer.getEval(model, x, labels, w, dl_dw, gradientClip)
             dl_dw:copy(gradientClip(dl_dw))
         end
         logger:logInfo(string.format('After clip: %.4f', torch.norm(dl_dw)), 2)
-        -- if gradientClip then
-        --     norm =  torch.sqrt(dl_dw:cmul(dl_dw):sum())
-        --     logger:logInfo(string.format('Gradient norm: %.4f', norm), 2)
-        --     if norm > gradientClip then
-        --         logger:logInfo('Gradient clipping', 2)
-        --         dl_dw:copy(dl_dw / norm * gradientClip)
-        --     end
-        -- end
         return loss, dl_dw
     end
     return feval
@@ -89,7 +81,8 @@ function nntrainer.trainEpoch(model, data, labels, batchSize, w, dl_dw, optimize
         _, cost = optimizer(
             nntrainer.getEval(model, xBatch, labelBatch, w, dl_dw, optimConfig.gradientClip), 
             w, optimConfig, state)
-        epochCost = epochCost + cost[1] / xBatch:size()[1]
+        epochCost = epochCost + cost[1] * xBatch:size(1) / data:size(1)
+        -- print(cost[1])
         collectgarbage()
     end
     return epochCost

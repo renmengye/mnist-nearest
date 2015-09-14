@@ -21,10 +21,11 @@ wordEmbedInitRange = 1.0
 wordEmbedLearningRate = 0.8
 wordEmbedGradientClip = 0.1
 answerInitRange = 0.01
-answerLearningRate = 0.01
+answerLearningRate = 0.1
 answerGradientClip = 0.1
 answerWeightDecay = 0.00005
 momentum = 0.9
+dropoutRate = 0.5
 
 -- Model architecture
 function createModel()
@@ -43,12 +44,20 @@ function createModel()
     local bow = bowLayer(txtEmbedding)
     -- (B, 4096) + (B, 500) -> (B, 4596)
     local imgtxtConcat = nn.JoinTable(2, 2)({bow, imgSel})
+
+    local dropout
+    if dropoutRate > 0.0 then
+        local dropoutLayer = nn.Dropout(dropoutRate)
+        dropout = dropoutLayer(imgtxtConcat)
+    else
+        dropout = imgtxtConcat
+    end
     -- (B, 4596) -> (B, 431)
     local answerLayer = nn.Linear(imgFeatLength + wordVecLength, numClasses)
     answerLayer.weight:copy(
         torch.rand(imgFeatLength + wordVecLength, numClasses) * answerInitRange - answerInitRange / 2)
     answerLayer.bias:copy(torch.rand(numClasses) * answerInitRange - answerInitRange / 2)
-    local answer = answerLayer(imgtxtConcat)
+    local answer = answerLayer(dropout)
     return nn.gModule({input}, {answer})
 end
 
@@ -97,7 +106,7 @@ local model = createModel()
 -- graph.dot(g.bg, 'Backward Graph', 'bg')
 
 local loopConfig = {
-    numEpoch = 100,
+    numEpoch = 200,
     trainBatchSize = 64,
     evalBatchSize = 1000
 }
