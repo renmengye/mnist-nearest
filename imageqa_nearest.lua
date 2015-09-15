@@ -37,7 +37,6 @@ function run(data)
 end
 
 function getOneHot(data, vocabSize)
-    logger:logInfo('Encoding one-hot vector')
     local dataFlatten = data:reshape(data:numel())
     local output = torch.Tensor(data:numel(), vocabSize):zero()
     for i = 1,data:numel() do
@@ -54,7 +53,6 @@ function getOneHot(data, vocabSize)
 end
 
 function getOneHotBOW(data, vocabSize)
-    logger:logInfo('Encoding one-hot bow vector')
     local output = torch.Tensor(data:size()[1], vocabSize):zero()
     for i = 1,data:size()[1] do
         for j = 1,data:size()[2] do
@@ -98,64 +96,52 @@ local dataImgFeatureBowFeature = hdf5.open(dataPath, 'r'):all()
 
 dataIdPath = '../../data/cocoqa-nearest/all_id.h5'
 local dataImgIdBowId = hdf5.open(dataIdPath, 'r'):all()
-for key, value in pairs(dataImgIdBowId) do
-    print(key)
-    print(value:size())
-end
+-- for key, value in pairs(dataImgIdBowId) do
+--     print(key)
+--     print(value:size())
+-- end
 
 -- local x = torch.Tensor({{1,2,3,4}, {5,6,7,8}}):long()
 -- print(getOneHot(x, 10))
 -- print(getOneHotBOW(x, 10))
 
 local data
-if opt.trained_word_embed then
-    -- Right now it is one-fold with image feature only
-    if opt.image_only then
-        logger:logInfo('Use image features only')
-        data = {
-            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
-            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
-            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
-            trainLabel = dataImgFeatureBowFeature.trainLabel,
-            validLabel = dataImgFeatureBowFeature.validLabel,
-            testLabel = dataImgFeatureBowFeature.testLabel
-        }
-    elseif opt.text_only then
+
+if opt.image_only then
+    logger:logInfo('Use image features only')
+    data = {
+        trainData = dataImgFeatureBowFeature.trainData[{{}, {1, 4096}}],
+        validData = dataImgFeatureBowFeature.validData[{{}, {1, 4096}}],
+        testData = dataImgFeatureBowFeature.testData[{{}, {1, 4096}}],
+        trainLabel = dataImgFeatureBowFeature.trainLabel,
+        validLabel = dataImgFeatureBowFeature.validLabel,
+        testLabel = dataImgFeatureBowFeature.testLabel
+    }
+elseif opt.trained_word_embed then
+    logger:logInfo('Use trained word embedding')
+    if opt.text_only then
         logger:logInfo('Use text features only')
         data = {
-            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(4097, 4596):long()),
-            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(4097, 4596):long()),
-            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(4097, 4596):long()),
+            trainData = dataImgFeatureBowFeature.trainData[{{}, {4097, 4596}}],
+            validData = dataImgFeatureBowFeature.validData[{{}, {4097, 4596}}],
+            testData = dataImgFeatureBowFeature.testData[{{}, {4097, 4596}}],
             trainLabel = dataImgFeatureBowFeature.trainLabel,
             validLabel = dataImgFeatureBowFeature.validLabel,
             testLabel = dataImgFeatureBowFeature.testLabel
         }
     else
-        logger:logInfo('Use trained word embedding')
         data = dataImgFeatureBowFeature
     end
 else
-    logger:logInfo('Use one-hot BOW vector')
+    logger:logInfo('Encoding one-hot vector')
     local numVocab = 9738
-    local trainWordId = dataImgIdBowId.trainData:index(2, torch.range(2, dataImgIdBowId.trainData:size()[2]):long()):long()
+    local trainWordId = dataImgIdBowId.trainData[{{}, {2, dataImgIdBowId.trainData:size(2)}}]
     local trainBow = getOneHotBOW(trainWordId, 9738)
-
-    local validWordId = dataImgIdBowId.validData:index(2, torch.range(2, dataImgIdBowId.validData:size()[2]):long()):long()
+    local validWordId = dataImgIdBowId.validData[{{}, {2, dataImgIdBowId.validData:size(2)}}]
     local validBow = getOneHotBOW(validWordId, 9738)
-
-    local testWordId = dataImgIdBowId.testData:index(2, torch.range(2, dataImgIdBowId.testData:size()[2]):long()):long()
+    local testWordId = dataImgIdBowId.testData[{{}, {2, dataImgIdBowId.testData:size(2)}}]
     local testBow = getOneHotBOW(testWordId, 9738)
-    if opt.image_only then
-        logger:logInfo('Use image features only')
-        data = {
-            trainData = dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
-            validData = dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
-            testData = dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
-            trainLabel = dataImgFeatureBowFeature.trainLabel,
-            validLabel = dataImgFeatureBowFeature.validLabel,
-            testLabel = dataImgFeatureBowFeature.testLabel
-        }
-    elseif opt.text_only then
+    if opt.text_only then
         logger:logInfo('Use text features only')
         data = {
             trainData = trainBow,
@@ -167,12 +153,15 @@ else
         }
     else
         data = {
-            trainData = torch.cat(dataImgFeatureBowFeature.trainData:index(2, torch.range(1, 4096):long()),
-                                  trainBow, 2),
-            validData = torch.cat(dataImgFeatureBowFeature.validData:index(2, torch.range(1, 4096):long()),
-                                  validBow, 2),
-            testData = torch.cat(dataImgFeatureBowFeature.testData:index(2, torch.range(1, 4096):long()),
-                                 testBow, 2),
+            trainData = torch.cat(
+                dataImgFeatureBowFeature.trainData[{{}, {1, 4096}}],
+                trainBow, 2),
+            validData = torch.cat(
+                dataImgFeatureBowFeature.validData[{{}, {1, 4096}}],
+                validBow, 2),
+            testData = torch.cat(
+                dataImgFeatureBowFeature.testData[{{}, {1, 4096}}],
+                testBow, 2),
             trainLabel = dataImgIdBowId.trainLabel,
             validLabel = dataImgIdBowId.validLabel,
             testLabel = dataImgIdBowId.testLabel
@@ -184,5 +173,6 @@ else
     end
 end
 
+print(data.trainData[1])
 collectgarbage()
 run(data)
