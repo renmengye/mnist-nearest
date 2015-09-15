@@ -91,7 +91,6 @@ else
 end
 
 logger:logInfo(string.format('Data: %s', dataPath))
-local dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
 local dataImgFeatureBowFeature = hdf5.open(dataPath, 'r'):all()
 
 dataIdPath = '../../data/cocoqa-nearest/all_id.h5'
