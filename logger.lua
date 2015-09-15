@@ -104,4 +104,9 @@ function Logger:logInfo(text, verboseLevel)
 end
 
 ----------------------------------------------------------------------
+function Logger:logError(text)
+    self:log(Logger.type.ERROR, text, 0)
+end
+
+----------------------------------------------------------------------
 return Logger
