@@ -21,6 +21,6 @@ end
 -- function imageqa.decodeSentence(ids, dict)
 -- end
 
-imageqa.readDict('../data/cocoqa/answer_vocabs.txt')
+imageqa.readDict('../image-qa/data/cocoqa/answer_vocabs.txt')
 
 return imageqa
