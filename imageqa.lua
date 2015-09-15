@@ -1,3 +1,6 @@
+local Logger = require('logger')
+local logger = Logger()
+
 local imageqa = {}
 function imageqa.readDict(filename)
     fh, err = io.open(filename)
