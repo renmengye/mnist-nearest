@@ -1,6 +1,8 @@
 local torch = require('torch')
 local nn = require('nn')
+local nngraph = require('nngraph')
 local rnn = require('rnn')
+local logger = require('logger')()
 local lstm = {}
 
 ----------------------------------------------------------------------
@@ -64,7 +66,7 @@ end
 
 
 
-local MyModel, parent = torch.class('MyModel','nn.Module')
+local MyModelClass, parent = torch.class('MyModel','nn.Module')
 
 function MyModel:__init(numInput, numHidden, numLayers, timespan)
     self.numInput = numInput
@@ -72,8 +74,9 @@ function MyModel:__init(numInput, numHidden, numLayers, timespan)
     self.numLayers = numLayers
     self.timespan = timespan
     local modelInput = nn.Identity()()
-    local splitTable = nn.SplitTable(2)()
+    local splitTable = nn.SplitTable(2)(modelInput)
     self.inputNode = nn.gModule({modelInput}, {splitTable})
+    logger:logInfo(self.inputNode)
     local coreStack = lstm.createStack(numInput, numHidden, numLayers)
     self.rnn.replicas = rnn.cloneModule(coreStack, timespan)
     local lstmOutput = nn.Identity()()
@@ -83,7 +86,7 @@ function MyModel:__init(numInput, numHidden, numLayers, timespan)
 end
 
 function MyModel:forward(x)
-    xSplit = self.inputNode:foward(x)
+    xSplit = self.inputNode:forward(x)
     local state0 = {}
     state0[1] = torch.Tensor(self.numHidden):zero()
     state0[2] = torch.Tensor(self.numHidden):zero()
@@ -96,7 +99,8 @@ function MyModel:backward(x, dl_dy)
     for i = 1, model.rnn.timespan - 1 do
         dl_drnn[1] = torch.Tensor(self.rnn.numHidden):zero()
         dl_drnn[2] = torch.Tensor(self.rnn.numHidden):zero()
-    local dl_drnn[model.rnn.timespan] = self.aggregator:backward(x, dl_dy)
+    end
+    dl_drnn[self.rnn.timespan] = self.aggregator:backward(x, dl_dy)
     local dl_dxSplit, dl_ds0 = rnn.backward(self.rnn, x, dl_drnn)
     local dl_dx = self.inputNode:backward(x, dl_dxSplit)
     return dl_dx
@@ -178,11 +182,14 @@ local optimConfig = {
     momentum = 0.9
 }
 
+local NNTrainer = require('nntrainer')
+local optim = require('optim')
 local optimizer = optim.sgd
 local model = createModel(T)
-nntrainer.trainAll(
-    model, trainData, trainLabels, testData, testLabels, 
-    loopConfig, optimizer, optimConfig)
+model.criterion = nn.MSECriterion()
+
+local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+trainer:trainLoop(trainData, trainLabels, testData, testLabels)
 
 ----------------------------------------------------------------------
 return lstm
