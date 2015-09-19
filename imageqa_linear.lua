@@ -50,7 +50,7 @@ print(init_weights.answer:size())
 if opt.train then
     local loopConfig = {
         numEpoch = 15,
-        trainBatchSize = 20,
+        trainBatchSize = 1000,
         evalBatchSize = 1000
     }
     local optimConfig = {
@@ -70,11 +70,11 @@ if opt.train then
     local weights = model:getParameters()
     weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
 
-    local trainLabel = data.trainLabel + 1
-    local validLabel = data.validLabel + 1
-    local testLabel = data.testLabel + 1
-    local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
-    local trainPlusValidLabel = torch.cat(trainLabel, validLabel, 1)
+    data.trainLabel = data.trainLabel + 1
+    data.validLabel = data.validLabel + 1
+    data.testLabel = data.testLabel + 1
+    data.trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
+    data.trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
     model.criterion = nn.CrossEntropyCriterion()
     model.decision = function(prediction)
@@ -83,9 +83,10 @@ if opt.train then
     end
     local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
     trainer:trainLoop(
-        trainPlusValidData, trainPlusValidLabel, data.testData, data.testLabel)
+        data.trainPlusValidData, data.trainPlusValidLabel, 
+        data.testData, data.testLabel)
 
     local evaluator = NNEvaluator(model)
-    local rate = evaluator:evaluate(data.testData, testLabel, 100)
+    local loss, rate = evaluator:evaluate(data.testData, data.testLabel, 100)
     logger:logInfo(string.format('Accuracy: %.4f', rate))
 end
