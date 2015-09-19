@@ -1,7 +1,36 @@
 local torch = require('torch')
-local Logger = require('logger')
-local logger = Logger()
+local logger = require('logger')()
+local progress = require('progress_bar')
 local utils = {}
+
+---------------------------------------------------------------------
+function utils.getBatchIterator(data, labels, batchSize, printProgress)
+    if printProgress == nil then
+        printProgress = true
+    end
+    local step = 0
+    local numData = data:size()[1]
+    local numSteps = torch.ceil(numData / batchSize)
+    local progressBar = progress.get(numSteps)
+    return function()
+               if step < numSteps then
+                   local startIdx = batchSize * step + 1
+                   local endIdx = batchSize * (step + 1)
+                   if endIdx > numData then
+                       endIdx = numData
+                   end
+                   local xBatch = data:index(
+                       1, torch.range(startIdx, endIdx):long())
+                   local labelBatch = labels:index(
+                       1, torch.range(startIdx, endIdx):long())
+                   step = step + 1
+                   if printProgress then
+                       progressBar(step)
+                   end
+                   return xBatch, labelBatch
+               end
+           end
+end
 
 ---------------------------------------------------------------------
 function utils.evalPrediction(prediction, labels)

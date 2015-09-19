@@ -1,28 +1,20 @@
 local nn = require('nn')
-local nntrainer = require('nntrainer')
 local hdf5 = require('hdf5')
 local utils = require('utils')
-local Logger = require('logger')
-local logger = Logger()
+local logger = require('logger')()
+local NNTrainer = require('nntrainer')
+local nnevaluator = require('nnevaluator')
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
--- function createModel()
---     local model = nn.Sequential()
---     model:add(nn.Linear(4596, 431))
---     logger:logInfo('Created model')
---     print(model)
---     return model
--- end
-
--- function createModel()
---     local model = nn.Sequential()
---     local input = nn.Identity()
---     local imgSel = nn.Select(2, 1)
---     local imgSelOneHot = nn.OneHot()(imgSel)
---     local txtSel = nn.Select(2, {2, 56})
---     local txtSelOneHOt = nn.OneHot()
+function createModel()
+    local model = nn.Sequential()
+    model:add(nn.Linear(4596, 431))
+    logger:logInfo('Created model')
+    print(model)
+    return model
+end
 
 local cmd = torch.CmdLine()
 cmd:text()
@@ -48,6 +40,7 @@ elseif opt.normimg then
 else
     dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
 end
+local data = hdf5.open(dataPath, 'r'):all()
 logger:logInfo(string.format('Data: %s', dataPath))
 
 local imgbow = '../../data/img_bow.h5'
@@ -73,9 +66,6 @@ if opt.train then
         print(key)
         print(value:size())
     end
-    
-    -- weights[1]:copy(init_weights.answer:index(1, torch.range(1, 4596):long()):t())
-    -- weights[2]:copy(init_weights.answer[4597])
 
     local weights = model:getParameters()
     weights:copy(torch.rand(weights:size()) * 0.01 - 0.005)
@@ -85,12 +75,16 @@ if opt.train then
     local testLabel = data.testLabel + 1
     local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
     local trainPlusValidLabel = torch.cat(trainLabel, validLabel, 1)
-    nntrainer.trainAll(
-        model, trainPlusValidData, trainPlusValidLabel, data.testData, testLabel, 
-        loopConfig, optimizer, optimConfig)
-    if opt.save then
-        nntrainer.save(opt.path, model)
+
+    model.criterion = nn.CrossEntropyCriterion()
+    model.decision = function(prediction)
+        local score, idx = prediction:max(2)
+        return idx
     end
-    local rate = nntrainer.evaluate(model, data.testData, testLabel, 100)
+    local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+    trainer:trainLoop(trainData, trainLabels, testData, testLabels)
+
+    local evaluator = NNEvaluator(model)
+    local rate = evaluator:evaluate(data.testData, testLabel, 100)
     logger:logInfo(string.format('Accuracy: %.4f', rate))
 end

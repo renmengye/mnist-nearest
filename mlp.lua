@@ -3,9 +3,8 @@ local nn = require('nn')
 local gnuplot = require('gnuplot')
 local mnist = require('mnist')
 local optim = require('optim')
-local nntrainer = require('nntrainer')
-local Logger = require('logger')
-local logger = Logger()
+local NNTrainer = require('nntrainer')
+local logger = require('logger')()
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
@@ -50,16 +49,23 @@ if opt.train then
     }
     local optimizer = optim.sgd
     local model = createModel()
-    nntrainer.trainAll(
-        model, trainData, trainLabels, testData, testLabels, 
-        loopConfig, optimizer, optimConfig)
-    if opt.save then
-        nntrainer.save(opt.path, model)
+    model.criterion = nn.CrossEntropyCriterion()
+    model.decision = function(prediction)
+        local score, idx = prediction:max(2)
+        return idx
     end
-else
-    local model = nntrainer.load(opt.path, createModel())
-    local weight = model:get(1).weight
-    mnist.visualize(weight:reshape(100, 1, 32, 32))
-    local rate = nntrainer.evaluate(model, testData, testLabels, 1000)
-    logger:logInfo(string.format('Test rate: %.3f', rate))
+    local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+    trainer:trainLoop(trainData, trainLabels, testData, testLabels)
+    -- nntrainer.trainAll(
+    --     model, trainData, trainLabels, testData, testLabels, 
+    --     loopConfig, optimizer, optimConfig)
+    -- if opt.save then
+    --     nntrainer.save(opt.path, model)
+    -- end
+-- else
+--     local model = nntrainer.load(opt.path, createModel())
+--     local weight = model:get(1).weight
+--     mnist.visualize(weight:reshape(100, 1, 32, 32))
+--     local rate = nntrainer.evaluate(model, testData, testLabels, 1000)
+--     logger:logInfo(string.format('Test rate: %.3f', rate))
 end

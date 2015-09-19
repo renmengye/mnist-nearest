@@ -1,6 +1,7 @@
 local torch = require('torch')
 local Logger = require('logger')
 local logger = Logger()
+local progress = require('progress_bar')
 local nearest_neighbours = {}
 
 ----------------------------------------------------------------------
@@ -39,27 +40,32 @@ function nearest_neighbours.runOnce(data, labels, labelStart, labelEnd, example,
     local pred = nearest_neighbours.consensus(
         labels:index(1, idxSortK), labelStart, labelEnd)
     pred = pred - 1 + labelStart
-    return pred
+    return pred, idxSortK
 end
 
 ----------------------------------------------------------------------
-function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest)
+function nearest_neighbours.runAll(K, trainData, trainLabels, testData, numTest, printProgress, processNearest)
+    if printProgress == nil then
+        printProgress = true
+    end
     logger:logInfo(string.format('Running nearest neighbours, k=%d', K))
     logger:logInfo(string.format('Running %d test examples', numTest))
     local prediction = torch.LongTensor(numTest)
-    local progress = 0
     local labelStart = trainLabels:min()
     local labelEnd = trainLabels:max()
+    local progressBar = progress.get(numTest)
     logger:logInfo(string.format('Label start: %d', labelStart), 1)
     logger:logInfo(string.format('Label end: %d', labelEnd), 1)
     for i = 1,numTest do
-        prediction[i] = nearest_neighbours.runOnce(
-            trainData, trainLabels, labelStart, labelEnd, testData[i], K)
+        prediction[i], idxSortK = nearest_neighbours.runOnce(
+            trainData, trainLabels, labelStart, labelEnd, testData[i], K, 
+            processNearest)
         collectgarbage()
-        while i / numTest > progress / 80 do
-            io.write('.')
-            io.flush()
-            progress = progress + 1
+        if printProgress then
+            progressBar(i)
+        end
+        if processNearest ~= nil then
+            processNearest(i, idxSortK)
         end
     end
     return prediction

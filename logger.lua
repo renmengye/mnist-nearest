@@ -31,7 +31,8 @@ local term = {
 Logger.type = {
     INFO = 0,
     WARNING = 1,
-    ERROR = 2
+    ERROR = 2,
+    FATAL = 3
 }
 
 ----------------------------------------------------------------------
@@ -47,6 +48,8 @@ function Logger.typeString(typ)
         return string.format('%sWARNING:%s', term.yellow, term.default)
     elseif typ == Logger.type.ERROR then
         return string.format('%sERROR:%s', term.red, term.default)
+    elseif typ == Logger.type.FATAL then
+        return string.format('%sFATAL:%s', term.red, term.default)
     else
         return 'UNKNOWN'
     end
@@ -106,6 +109,12 @@ end
 ----------------------------------------------------------------------
 function Logger:logError(text)
     self:log(Logger.type.ERROR, text, 0)
+end
+
+----------------------------------------------------------------------
+function Logger:logFatal(text)
+    self:log(Logger.type.FATAL, text, 0)
+    os.exit(0)
 end
 
 ----------------------------------------------------------------------

@@ -1,13 +1,17 @@
+local imageqa = require('imageqa')
 local knn = require('nearest_neighbours')
 local hdf5 = require('hdf5')
 local utils = require('utils')
 local Logger = require('logger')
 local logger = Logger()
--- local dataPath = '/ais/gobi3/u/mren/data/cocoqa-nearest/all.h5'
+
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
-function run(data)
+function run(data, printProgress, printNearestNeighbours)
+    if printNearestNeighbours == nil then
+        printNearestNeighbours = false
+    end
     local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
     local trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
@@ -16,9 +20,26 @@ function run(data)
     logger:logInfo('Running on validation set')
     -- numTest = data.validData:size()[1]
     local numTest = 200
-    for k = 1,61,2 do
+
+    local processNearest
+    if printNearestNeighbours then
+        local dictPath = '../image-qa/data/cocoqa/question_vocabs.txt'
+        local qdict, iqdict = imageqa.readDict(dictPath)
+        local dataId = imageqa.getid('cocoqa')
+        processNearest = function(id, neighbourIds)
+            local example = imageqa.decodeSentence(dataId. validData[{id, {2, 56}}], iqdict)
+            local neighbours = imageqa.decodeSentence(dataId.trainData:index(1, neighbourIds)[{{}, {2, 56}}], iqdict)
+            logger:logInfo(string.format('T: %s', example))
+            for i, s in ipairs(neighbours) do
+                logger:logInfo(string.format('N: %s', s))
+            end
+        end
+    else
+        processNearest = nil
+    end
+    for k = 1, 61, 2 do
         local validPred = knn.runAll(
-            k, data.trainData, data.trainLabel, data.validData, numTest)
+            k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
         local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
         local rate = utils.evalPrediction(validPred, validLabelSubset)
         if rate > bestRate then
@@ -95,15 +116,6 @@ local dataImgFeatureBowFeature = hdf5.open(dataPath, 'r'):all()
 
 dataIdPath = '../../data/cocoqa-nearest/all_id.h5'
 local dataImgIdBowId = hdf5.open(dataIdPath, 'r'):all()
--- for key, value in pairs(dataImgIdBowId) do
---     print(key)
---     print(value:size())
--- end
-
--- local x = torch.Tensor({{1,2,3,4}, {5,6,7,8}}):long()
--- print(getOneHot(x, 10))
--- print(getOneHotBOW(x, 10))
-
 local data
 
 if opt.image_only then
@@ -172,6 +184,6 @@ else
     end
 end
 
-print(data.trainData[1])
+-- print(data.trainData[1])
 collectgarbage()
-run(data)
+run(data, false, true)
