@@ -82,7 +82,8 @@ if opt.train then
         return idx
     end
     local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
-    trainer:trainLoop(trainData, trainLabels, testData, testLabels)
+    trainer:trainLoop(
+        trainPlusValidData, trainPlusValidLabel, data.testData, data.testLabel)
 
     local evaluator = NNEvaluator(model)
     local rate = evaluator:evaluate(data.testData, testLabel, 100)
