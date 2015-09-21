@@ -106,6 +106,11 @@ function Logger:logInfo(text, verboseLevel)
 end
 
 ----------------------------------------------------------------------
+function Logger:logWarning(text)
+    self:log(Logger.type.WARNING, text, 0)
+end
+
+----------------------------------------------------------------------
 function Logger:logError(text)
     self:log(Logger.type.ERROR, text, 0)
 end
