@@ -3,8 +3,9 @@ local nn = require('nn')
 local nngraph = require('nngraph')
 local hdf5 = require('hdf5')
 local nntrainer = require('nntrainer')
-local Logger = require('logger')
-local logger = Logger()
+local utils = require('utils')
+local table_utils = require('table_utils')
+local logger = require('logger')()
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
@@ -17,15 +18,23 @@ numImages = 123287
 imgFeatLength = 4096
 wordVecLength = 500
 numClasses = 431
-wordEmbedInitRange = 1.0
-wordEmbedLearningRate = 0.8
-wordEmbedGradientClip = 0.1
+txtEmbeddingInitRange = 1.0
 answerInitRange = 0.01
-answerLearningRate = 0.1
-answerGradientClip = 0.1
-answerWeightDecay = 0.00005
 momentum = 0.9
 dropoutRate = 0.5
+
+learningRates = {
+    txtEmbedding = 0.8,
+    answer = 0.1
+}
+weightDecays = {
+    txtEmbedding = 0.0,
+    answer = 0.00005
+}
+gradClips = {
+    txtEmbedding = 0.1,
+    answer = 0.1
+}
 
 -- Model architecture
 function createModel()
@@ -37,7 +46,8 @@ function createModel()
     -- (B, 55) -> (B, 55, 500)
     local txtEmbeddingLayer = nn.LookupTable(vocabSize, wordVecLength)
     txtEmbeddingLayer.weight:copy(
-        torch.rand(vocabSize, wordVecLength) * wordEmbedInitRange - wordEmbedInitRange / 2)
+        torch.rand(vocabSize, wordVecLength) * 
+        txtEmbeddingInitRange - txtEmbeddingInitRange / 2)
     txtEmbedding = txtEmbeddingLayer(txtSel)
     -- (B, 55, 500) -> (B, 500)
     local bowLayer = nn.Sum(2)
@@ -55,10 +65,17 @@ function createModel()
     -- (B, 4596) -> (B, 431)
     local answerLayer = nn.Linear(imgFeatLength + wordVecLength, numClasses)
     answerLayer.weight:copy(
-        torch.rand(imgFeatLength + wordVecLength, numClasses) * answerInitRange - answerInitRange / 2)
-    answerLayer.bias:copy(torch.rand(numClasses) * answerInitRange - answerInitRange / 2)
+        torch.rand(imgFeatLength + wordVecLength, numClasses) * 
+        answerInitRange - answerInitRange / 2)
+    answerLayer.bias:copy(torch.rand(numClasses) * 
+        answerInitRange - answerInitRange / 2)
     local answer = answerLayer(dropout)
-    return nn.gModule({input}, {answer})
+    local model = nn.gModule({input}, {answer})
+    model.parameterMap = utils.getParameterMap({
+        txtEmbedding = txtEmbeddingLayer,
+        answer = answerLayer})
+    model.sliceLayer = utils.sliceLayer(model.parameterMap)
+    return model
 end
 
 -- Command line options
@@ -102,8 +119,11 @@ data.allLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 logger:logInfo('Creating model')
 local model = createModel()
 
--- graph.dot(g.fg, 'Forward Graph', 'fg')
--- graph.dot(g.bg, 'Backward Graph', 'bg')
+model.criterion = nn.CrossEntropyCriterion()
+model.decision = function(prediction)
+    local score, idx = prediction:max(2)
+    return idx
+end
 
 local loopConfig = {
     numEpoch = 200,
@@ -111,61 +131,25 @@ local loopConfig = {
     evalBatchSize = 1000
 }
 
--- Helper function to slice the entire vector
-local function sliceLayer(vector, name)
-    if name == 'txtEmbedding' then
-        return vector[{{1, vocabSize * wordVecLength}}]
-    elseif name == 'answer' then
-        return vector[{{vocabSize * wordVecLength + 1, vector:numel()}}]
-    else
-        logger:logError(string.format('No layer with name %s found', name))
-    end
-end
-
--- Set up different learning rates for each layer
-local learningRates = torch.Tensor(model:getParameters():size()):zero()
-learningRates:fill(answerLearningRate)
-sliceLayer(learningRates, 'txtEmbedding'):fill(wordEmbedLearningRate)
-
--- Set up different weight decays for each layer
-local weightDecays = torch.Tensor(model:getParameters():size()):zero()
-weightDecays:fill(0.0)
-sliceLayer(weightDecays, 'answer'):fill(answerWeightDecay)
-
--- Set up different gradient clipping for each layer
-local gradientClip = function(dl_dw)
-    function clip(x, cnorm)
-        xnorm = torch.norm(x)
-        logger:logInfo(string.format('Gradient norm: %.4f', xnorm), 2)
-        if xnorm > cnorm then
-            return x / xnorm * cnorm
-        else
-            return x
-        end
-    end
-    dl_dw_clipped = torch.Tensor(dl_dw:size()):zero()
-    txtEmbeddingGrad = sliceLayer(dl_dw, 'txtEmbedding')
-    sliceLayer(dl_dw_clipped, 'txtEmbedding'):copy(
-        clip(txtEmbeddingGrad, wordEmbedGradientClip))
-    answerGrad = sliceLayer(dl_dw, 'answer')
-    sliceLayer(dl_dw_clipped, 'answer'):copy(
-        clip(answerGrad, answerGradientClip))
-    return dl_dw_clipped
-end
-
 -- Construct optimizer configs
+local w, dl_dw = model:getParameters()
 local optimConfig = {
     learningRate = 1.0,
     momentum = momentum,
-    learningRates = learningRates,
+    learningRates = utils.fillVector(
+        torch.Tensor(w:size()), model.sliceLayer, learningRates),
     weightDecay = 0.0,
-    weightDecays = weightDecays,
-    gradientClip = gradientClip
+    weightDecays = utils.fillVector(
+        torch.Tensor(w:size()), model.sliceLayer, weightDecays),
+    gradientClip = utils.gradientClip(gradClips, model.sliceLayer)
 }
 
 local optimizer = optim.sgd
 logger:logInfo('Start training')
-nntrainer.trainAll(
-    model, data.allData, data.allLabel, data.testData, data.testLabel, 
-    loopConfig, optimizer, optimConfig, opt.gpu)
-print(nntrainer.evaluate(model, data.testData, data.testLabel, 100))
+
+local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+trainer:trainLoop(data.allData, data.allLabel, data.testData, data.testLabel)
+
+local evaluator = NNEvaluator(model)
+local loss, rate = evaluator:evaluate(data.testData, data.testLabel, 100)
+logger:logInfo(string.format('Accuracy: %.4f', rate))

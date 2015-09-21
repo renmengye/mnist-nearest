@@ -3,10 +3,11 @@ local nn = require('nn')
 local gnuplot = require('gnuplot')
 local mnist = require('mnist')
 local optim = require('optim')
-local NNTrainer = require('nntrainer')
+local nntrainer = require('nntrainer')
 local logger = require('logger')()
 
 torch.manualSeed(2)
+-- torch.setdefaulttensortype('torch.DoubleTensor')
 torch.setdefaulttensortype('torch.FloatTensor')
 
 function createModel()
@@ -32,8 +33,10 @@ cmd:text()
 opt = cmd:parse(arg)
 
 local train, test = mnist.loadData()
+-- local trainData, trainMean, trainStd = mnist.flattenFloatNormalize(train.data)[{{1,10}}]:double()
 local trainData, trainMean, trainStd = mnist.flattenFloatNormalize(train.data)
 local testData = mnist.flattenFloatNormalize(test.data, trainMean, trainStd)
+-- local trainLabels = train.labels[{{1,10}}]:long()
 local trainLabels = train.labels:long()
 local testLabels = test.labels:long()
 
@@ -56,6 +59,7 @@ if opt.train then
     end
     local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
     trainer:trainLoop(trainData, trainLabels, testData, testLabels)
+    --trainer:checkGrad(trainData, trainLabels)
     -- nntrainer.trainAll(
     --     model, trainData, trainLabels, testData, testLabels, 
     --     loopConfig, optimizer, optimConfig)

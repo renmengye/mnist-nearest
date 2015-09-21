@@ -5,9 +5,6 @@ local logger = require('logger')()
 local table_utils = require('table_utils')
 local imageqa = {}
 
-torch.manualSeed(2)
-torch.setdefaulttensortype('torch.FloatTensor')
-
 ----------------------------------------------------------------------
 
 function imageqa.readImgDictCocoqa(imgidDict)
@@ -190,14 +187,14 @@ end
 
 ----------------------------------------------------------------------
 
-local qdict, iqdict = imageqa.readDict('../image-qa/data/cocoqa/question_vocabs.txt')
-local data = imageqa.getid('cocoqa')
-logger:logInfo(imageqa.decodeSentences(data.trainData[{1, {2, 56}}], iqdict))
-local sentences = {}
-for i, sentence in ipairs(imageqa.decodeSentences(data.trainData[{{1, 5}, {2, 56}}], iqdict)) do
-    table.insert(sentences, sentence)
-end
-logger:logInfo(table.tostring(imageqa.encodeSentences(sentences, qdict)))
-logger:logInfo(imageqa.encodeSentences(sentences, qdict, true))
+-- local qdict, iqdict = imageqa.readDict('../image-qa/data/cocoqa/question_vocabs.txt')
+-- local data = imageqa.getid('cocoqa')
+-- logger:logInfo(imageqa.decodeSentences(data.trainData[{1, {2, 56}}], iqdict))
+-- local sentences = {}
+-- for i, sentence in ipairs(imageqa.decodeSentences(data.trainData[{{1, 5}, {2, 56}}], iqdict)) do
+--     table.insert(sentences, sentence)
+-- end
+-- logger:logInfo(table.tostring(imageqa.encodeSentences(sentences, qdict)))
+-- logger:logInfo(imageqa.encodeSentences(sentences, qdict, true))
 
 return imageqa

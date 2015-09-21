@@ -1,7 +1,6 @@
 local os = require('os')
 local torch = require('torch')
 local LoggerClass = torch.class('Logger')
-local print = require('cprint')
 local verboseThreshold = os.getenv('VERBOSE')
 if verboseThreshold == nil then
     verboseThreshold = 0

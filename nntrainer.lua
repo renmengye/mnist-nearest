@@ -4,11 +4,11 @@ local logger = require('logger')()
 local utils = require('utils')
 local progress = require('progress_bar')
 
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
 local NNTrainerClass = torch.class('NNTrainer')
 local NNEvaluator = require('nnevaluator')
 
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
 function NNTrainer:__init(model, loopConfig, optimizer, optimConfig, cuda)
     self.model = model
     self.loopConfig = loopConfig
@@ -29,12 +29,12 @@ function NNTrainer:__init(model, loopConfig, optimizer, optimConfig, cuda)
     model.dl_dw = dl_dw
     self.runOptimizer = function(xBatch, labelBatch)
         return optimizer(
-            self:getEvalFn(xBatch, labelBatch), model.w, optimConfig, state)
+            self:getEvalFn(xBatch, labelBatch), w, optimConfig, state)
     end
     self.evaluator = NNEvaluator(model)
 end
 
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
 function NNTrainer:getEvalFn(x, labels)
     local w = self.model.w
     local dl_dw = self.model.dl_dw
@@ -43,13 +43,12 @@ function NNTrainer:getEvalFn(x, labels)
             w:copy(w_new)
         end
         dl_dw:zero()
-        -- local criterion = nn.CrossEntropyCriterion()
         local pred = self.model:forward(x)
-        
         local loss = self.model.criterion:forward(pred, labels)
         self.model:backward(x, self.model.criterion:backward(pred, labels))
         
-        logger:logInfo(string.format('Before clip: %.4f', torch.norm(dl_dw)), 2)
+        logger:logInfo(
+            string.format('Before clip: %.4f', torch.norm(dl_dw)), 2)
         if self.optimConfig.gradientClip then
             dl_dw:copy(self.optimConfig.gradientClip(dl_dw))
         end
@@ -59,17 +58,71 @@ function NNTrainer:getEvalFn(x, labels)
     return feval
 end
 
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
 function NNTrainer:trainEpoch(data, labels, batchSize)
     self.model:training()
     for xBatch, labelBatch in utils.getBatchIterator(
-        data, labels, batchSize) do
+        data, labels, batchSize, self.loopConfig.progressBar) do
+
+        -- logger:logError('Before')
+        -- local w1, dl_dw1 = self.model.moduleMap['lstm'].core:parameters()
+        -- local replica = self.model.moduleMap['lstm'].replicas[1]
+        -- local replica2 = self.model.moduleMap['lstm'].replicas[3]
+        -- local w2, dl_dw2 = replica:parameters()
+        -- local w3, dl_dw3 = replica2:parameters()
+        -- for i = 1, #w1 do
+        --     logger:logError(i)
+        --     logger:logError(w1[i]:data())
+        --     logger:logError(w2[i]:data())
+        --     logger:logError(w3[i]:data())
+        --     logger:logError(dl_dw1[i]:data())
+        --     logger:logError(dl_dw2[i]:data())
+        --     logger:logError(dl_dw3[i]:data())
+        -- end
+        -- print(self.model.dl_dw)
+
         self.runOptimizer(xBatch, labelBatch)
         collectgarbage()
+
+        -- logger:logError('After')
+        -- w1, dl_dw1 = self.model.rnn.core:parameters()
+        -- replica = self.model.rnn.replicas[1]
+        -- replica2 = self.model.rnn.replicas[3]
+        -- w2, dl_dw2 = replica:parameters()
+        -- w3, dl_dw3 = replica2:parameters()
+        -- for i = 1, #w1 do
+        --     logger:logError(i)
+        --     logger:logError(w1[i]:data())
+        --     logger:logError(w2[i]:data())
+        --     logger:logError(w3[i]:data())
+        --     logger:logError(dl_dw1[i]:data())
+        --     logger:logError(dl_dw2[i]:data())
+        --     logger:logError(dl_dw3[i]:data())
+        -- end
     end
 end
 
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
+function NNTrainer:checkGrad(data, labels)
+    local evalFn = self:getEvalFn(data, labels)
+    local dl_dw = torch.Tensor(self.model.dl_dw:size())
+    local eps = 1e-7  -- This will only work in DoubleTensor
+    local cost, dcost
+    for i = 1, self.model.w:numel() do
+        self.model.w[i] = self.model.w[i] + eps
+        cost, dcost = evalFn(self.model.w)
+        local dl_dw_tmp1 = cost
+        self.model.w[i] = self.model.w[i] - 2 * eps
+        cost, dcost = evalFn(self.model.w)
+        local dl_dw_tmp2 = cost
+        dl_dw[i] = (dl_dw_tmp1 - dl_dw_tmp2) / eps / 2
+    end
+    cost, dcost = evalFn(self.model.w)
+    print(cost)
+    logger:logError(dl_dw:cdiv(self.model.dl_dw))
+end
+
+-------------------------------------------------------------------------------
 function NNTrainer:trainLoop(trainData, trainLabels, testData, testLabels)
     for epoch = 1, self.loopConfig.numEpoch do
         self:trainEpoch(trainData, trainLabels, self.loopConfig.trainBatchSize)
@@ -82,7 +135,7 @@ function NNTrainer:trainLoop(trainData, trainLabels, testData, testLabels)
             epoch, trainLoss, trainRate, testLoss, testRate))
     end
 end
-----------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 ----------------------------------------------------------------------
 local nntrainer = {}
