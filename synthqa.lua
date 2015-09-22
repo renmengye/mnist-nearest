@@ -385,7 +385,7 @@ function synthqa.createModel(params)
 end
 
 ----------------------------------------------------------------------
-local N = 1000
+local N = 10000
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData)
 logger:logInfo(data:size(), 1)
