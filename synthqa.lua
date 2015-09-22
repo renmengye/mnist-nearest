@@ -1,6 +1,6 @@
 local torch = require('torch')
 local logger = require('logger')()
-local tableUtils = require('table_utils')
+local table_utils = require('table_utils')
 local imageqa = require('imageqa')
 local lstm = require('lstm')
 local nn = require('nn')
