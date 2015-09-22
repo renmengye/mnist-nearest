@@ -134,7 +134,7 @@ function NNTrainer:trainLoop(trainData, trainLabels, testData, testLabels, evalu
         self.testEvaluator:evaluate(
             testData, testLabels, self.loopConfig.evalBatchSize)
         if self.loopConfig.savePath then
-            nnserializer.save(self.model, savePath)
+            nnserializer.save(self.model, self.loopConfig.savePath)
         end
     end
 end
