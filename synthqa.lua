@@ -404,7 +404,7 @@ local params = {
     wordEmbedDim = 10,
     lstmDim = 10,
     itemDim = 10,
-    decoderSteps = 8,
+    decoderSteps = 12,
     vocabSize = #synthqa.idict,
     numObject = #synthqa.OBJECT + 1,
     numColor = #synthqa.COLOR + 1
@@ -426,7 +426,7 @@ local learningRates = {
 }
 
 local gradClipTable = {
-    catEmbed = 0.1, 
+    catEmbed = 0.1,
     colorEmbed = 0.1,
     wordEmbed = 0.1,
     encoder = 0.1,
@@ -444,7 +444,7 @@ local optimConfig = {
 
 local loopConfig = {
     numEpoch = 10000,
-    trainBatchSize = 20,
+    trainBatchSize = 1000,
     evalBatchSize = 1000,
     progressBar = true
 }
