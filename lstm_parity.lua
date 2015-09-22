@@ -8,6 +8,9 @@ local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
 local logger = require('logger')()
 local utils = require('utils')
+local nnserializer = require('nnserializer')
+local nntrainer = require('nntrainer')
+local optim_pkg = require('optim')
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 -- torch.setdefaulttensortype('torch.DoubleTensor')
@@ -55,6 +58,10 @@ function createModel(numHidden, timespan)
     all:addModule('lstm', rnn)
     all:addModule('sigmoid', linear)
     all:setup()
+    all.criterion = nn.BCECriterion()
+    all.decision = function (pred)
+        return torch.gt(pred, 0.5):float()
+    end
     rnn.data.module:expand()
     return all
 end
@@ -92,20 +99,14 @@ local learningRates = {
 }
 
 local loopConfig = {
-    numEpoch = 10000,
+    numEpoch = 100,
     trainBatchSize = 20,
     evalBatchSize = 1000,
     progressBar = false
 }
 
-local NNTrainer = require('nntrainer')
-local optim = require('optim')
 local optimizer = optim.sgd
 local model = createModel(H, T)
-model.criterion = nn.BCECriterion()
-model.decision = function (pred)
-    return torch.gt(pred, 0.5):float()
-end
 
 local optimConfig = {
     learningRate = 1.0,
@@ -115,8 +116,18 @@ local optimConfig = {
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
-local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
--- trainer:checkGrad(
---     data.trainData, data.trainLabels)
-trainer:trainLoop(
+logger:logInfo('saving model')
+nnserializer.save(model, 'lstm_parity.w.h5')
+
+local nntrainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+nntrainer:trainLoop(
     data.trainData, data.trainLabels, data.testData, data.testLabels)
+
+logger:logInfo('saving model')
+nnserializer.save(model, 'lstm_parity.w.h5')
+
+logger:logInfo('loading model2')
+local model2 = createModel(H, T)
+local nnevaluator = NNEvaluator('test', model2)
+nnserializer.load(model2, 'lstm_parity.w.h5')
+nnevaluator:evaluate(data.testData, data.testLabels, loopConfig.evalBatchSize)

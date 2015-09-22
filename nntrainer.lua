@@ -3,10 +3,11 @@ local optim = require('optim')
 local logger = require('logger')()
 local utils = require('utils')
 local progress = require('progress_bar')
+local nnserializer = require('nnserializer')
+local nnevaluator = require('nnevaluator')
 
 -------------------------------------------------------------------------------
 local NNTrainerClass = torch.class('NNTrainer')
-local NNEvaluator = require('nnevaluator')
 
 -------------------------------------------------------------------------------
 function NNTrainer:__init(model, loopConfig, optimizer, optimConfig, cuda)
@@ -31,7 +32,8 @@ function NNTrainer:__init(model, loopConfig, optimizer, optimConfig, cuda)
         return optimizer(
             self:getEvalFn(xBatch, labelBatch), w, optimConfig, state)
     end
-    self.evaluator = NNEvaluator(model)
+    self.trainEvaluator = NNEvaluator('train', model, loopConfig.analyzers)
+    self.testEvaluator = NNEvaluator('test', model, loopConfig.analyzers)
 end
 
 -------------------------------------------------------------------------------
@@ -123,16 +125,17 @@ function NNTrainer:checkGrad(data, labels)
 end
 
 -------------------------------------------------------------------------------
-function NNTrainer:trainLoop(trainData, trainLabels, testData, testLabels)
+function NNTrainer:trainLoop(trainData, trainLabels, testData, testLabels, evaluators)
     for epoch = 1, self.loopConfig.numEpoch do
         self:trainEpoch(trainData, trainLabels, self.loopConfig.trainBatchSize)
-        trainLoss, trainRate = self.evaluator:evaluate(
+        logger:logInfo(string.format('epoch: %-2d', epoch))
+        self.trainEvaluator:evaluate(
             trainData, trainLabels, self.loopConfig.evalBatchSize)
-        testLoss, testRate = self.evaluator:evaluate(
+        self.testEvaluator:evaluate(
             testData, testLabels, self.loopConfig.evalBatchSize)
-        logger:logInfo(string.format(
-            'n: %-2d tl: %.3f tr: %.3f hl: %.3f hr: %.3f', 
-            epoch, trainLoss, trainRate, testLoss, testRate))
+        if self.loopConfig.savePath then
+            nnserializer.save(self.model, savePath)
+        end
     end
 end
 -------------------------------------------------------------------------------

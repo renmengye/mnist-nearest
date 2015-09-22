@@ -375,6 +375,11 @@ function synthqa.createModel(params)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
     all:addModule('answer', classification)
+    all.criterion = nn.CrossEntropyCriterion()
+    all.decision = function(pred)
+        local score, idx = pred:max(2)
+        return idx
+    end
     all:setup()
 
     -- Expand LSTMs
@@ -410,19 +415,14 @@ local params = {
     numColor = #synthqa.COLOR + 1
 }
 local model = synthqa.createModel(params)
-model.criterion = nn.CrossEntropyCriterion()
-model.decision = function(prediction)
-    local score, idx = prediction:max(2)
-    return idx
-end
 
 local learningRates = {
-    catEmbed = 0.1, 
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
-    encoder = 0.1,
-    decoder = 0.1,
-    answer = 0.01
+    catEmbed = 0.8, 
+    colorEmbed = 0.8,
+    wordEmbed = 0.8,
+    encoder = 0.8,
+    decoder = 0.8,
+    answer = 0.1
 }
 
 local gradClipTable = {
@@ -442,11 +442,35 @@ local optimConfig = {
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
+local function classAccuracyAnalyzer(pred, labels, model)
+    local N = labels:numel()
+    local labelDist = torch.histc(labels:double(), #synthqa.idict, 1, #synthqa.idict)
+    local score, idx = pred:max(2)
+    local idxDist = torch.histc(idx:double(), #synthqa.idict, 1, #synthqa.idict)
+    local correct = idx:eq(labels):reshape(N)
+    local correctCls = {}
+    for n = 1, N do
+        if correct[n] == 1 then
+            correctCls[#correctCls + 1] = labels[n]
+        end
+    end
+    correctCls = torch.DoubleTensor(correctCls)
+    local correctClsDist = torch.histc(correctCls, #synthqa.idict, 1, #synthqa.idict)
+    for n = 1, #synthqa.idict do
+        if labelDist[n] > 0 then
+            logger:logInfo(string.format(
+                '%s: %.3f', synthqa.idict[n], correctClsDist[n] / labelDist[n]))
+        end
+    end
+end
+
 local loopConfig = {
     numEpoch = 10000,
-    trainBatchSize = 1000,
+    trainBatchSize = 50,
     evalBatchSize = 1000,
-    progressBar = true
+    progressBar = true,
+    analyzers = {classAccuracyAnalyzer},
+    savePath = 'synthqa.w.h5'
 }
 
 local optimizer = optim.sgd
