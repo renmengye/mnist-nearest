@@ -13,6 +13,8 @@ local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
 local utils = require('utils')
+local nntrainer = require('nntrainer')
+require 'optim'
 local synthqa = {}
 
 torch.manualSeed(2)
@@ -447,8 +449,6 @@ local loopConfig = {
     progressBar = true
 }
 
-local NNTrainer = require('nntrainer')
-local optim = require('optim')
 local optimizer = optim.sgd
 local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
 trainer:trainLoop(
