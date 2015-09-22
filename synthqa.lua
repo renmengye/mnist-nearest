@@ -202,27 +202,30 @@ function synthqa.encodeItems(items)
     local numDim = 1 + 1 + 4
     local result = torch.Tensor(#items, synthqa.NUM_GRID * numDim):zero()
     for i, example in ipairs(items) do
-        local itemShuffle = torch.randperm(#example)
         local used = {}
         for j = 1, synthqa.NUM_GRID do
             used[j] = false
         end
-        for j = 1, #example do
-            local item = example[itemShuffle[j]]
-            local itemCount = 0
-            for key, value in pairs(item) do
-                if key == 'category' then
-                    result[{i, (j - 1) * numDim + 1}] = value
-                elseif key == 'color' then
-                    result[{i, (j - 1) * numDim + 2}] = value
-                elseif key == 'grid' then
-                    result[
-                    {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
-                    getCoord(value)
-                    used[value] = true
+        if #example > 0 then
+            local itemShuffle = torch.randperm(#example)
+            for j = 1, #example do
+                local item = example[itemShuffle[j]]
+                local itemCount = 0
+                for key, value in pairs(item) do
+                    if key == 'category' then
+                        result[{i, (j - 1) * numDim + 1}] = value
+                    elseif key == 'color' then
+                        result[{i, (j - 1) * numDim + 2}] = value
+                    elseif key == 'grid' then
+                        result[
+                        {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
+                        getCoord(value)
+                        used[value] = true
+                    end
                 end
             end
         end
+
         -- Fill empty
         if #example < synthqa.NUM_GRID then
             for j = #example + 1, synthqa.NUM_GRID do
@@ -441,7 +444,7 @@ local loopConfig = {
     numEpoch = 10000,
     trainBatchSize = 20,
     evalBatchSize = 1000,
-    progressBar = false
+    progressBar = true
 }
 
 local NNTrainer = require('nntrainer')
