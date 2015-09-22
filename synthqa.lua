@@ -14,7 +14,7 @@ local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
 local utils = require('utils')
 local nntrainer = require('nntrainer')
-require 'optim'
+local optim_pkg = require 'optim'
 local synthqa = {}
 
 torch.manualSeed(2)

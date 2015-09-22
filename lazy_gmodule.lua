@@ -10,8 +10,6 @@ local LazyGModule, parent = torch.class('nn.LazyGModule', 'nn.gModule')
 -------------------------------------------------------------------------------
 function LazyGModule:__init(...)
     params = {...}
-    print(params[1])
-    print(params[1][1])
     parent.__init(self, params[1], params[2])
     self.moduleMap = {}
     self.moduleList = {}
