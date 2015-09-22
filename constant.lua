@@ -11,7 +11,7 @@ function Constant:__init(shape, value)
     else
         self.value = value
     end
-    if type(shape) == number then
+    if type(shape) == 'number' then
         self.shape = torch.LongStorage({shape})
     else
         self.shape = torch.LongStorage(shape)
@@ -21,10 +21,15 @@ end
 function Constant:updateOutput(input)
     local outputShape = torch.LongStorage(self.shape:size() + 1)
     -- Batch is the same
+    while type(input) == 'table' do
+        input = input[1]
+    end
     outputShape[1] = input:size(1)
     for i = 1, self.shape:size() do
         outputShape[i + 1] = self.shape[i]
     end
+    -- print('Constant')
+    -- print(outputShape)
     return torch.Tensor(outputShape):fill(self.value)
 end
 

@@ -38,6 +38,11 @@ function BatchReshape:__init(...)
 end
 
 function BatchReshape:updateOutput(input)
+   -- print('BatchReshape forward')
+   -- if self.name then
+   --    print(self.name)
+   -- end
+   -- print(input:size())
    if not input:isContiguous() then
       self._input:resizeAs(input)
       self._input:copy(input)
@@ -53,10 +58,17 @@ function BatchReshape:updateOutput(input)
       self.batchsize[1] = input:numel() / self.numel
       self.output:view(input, self.batchsize)
    end
+   -- print(self.output:size())
    return self.output
 end
 
 function BatchReshape:updateGradInput(input, gradOutput)
+   -- print('BatchReshape backward')
+   -- if self.name then
+   --    print(self.name)
+   -- end
+   -- print(input:size())
+   -- print(gradOutput:size())
    if not gradOutput:isContiguous() then
       self._gradOutput:resizeAs(gradOutput)
       self._gradOutput:copy(gradOutput)

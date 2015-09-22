@@ -10,9 +10,11 @@ function Weights:__init(...)
     self.initRange = 0.1
     self.weight = torch.Tensor(self.shape):uniform(
         -self.initRange / 2, self.initRange / 2)
+    self.gradWeight = torch.Tensor(self.weight:size()):zero()
 end
 
 function Weights:updateOutput(input)
+    -- print('Weights')
     local outputShape = torch.LongStorage(self.shape:size() + 1)
     local reshapeShape = torch.LongStorage(self.shape:size() + 1)
     -- Batch is the same
@@ -22,6 +24,7 @@ function Weights:updateOutput(input)
         outputShape[i + 1] = self.shape[i]
         reshapeShape[i + 1] = self.shape[i]
     end
+    -- print(outputShape)
     return self.weight:reshape(reshapeShape):expand(outputShape)
 end
 

@@ -21,12 +21,12 @@ end
 -------------------------------------------------------------------------------
 function RNN:updateOutput(input)
     local output = {}
-    local inputSeq, state0 = unpack(input)
+    local inputSeq, state0, global = unpack(input)
     for t = 1, self.timespan do
         if t == 1 then
-            output[t] = self.replicas[t]:forward({inputSeq[t], state0})
+            output[t] = self.replicas[t]:forward({inputSeq[t], state0, global})
         else
-            output[t] = self.replicas[t]:forward({inputSeq[t], output[t - 1]})
+            output[t] = self.replicas[t]:forward({inputSeq[t], output[t - 1], global})
         end
     end
     return output
@@ -36,21 +36,31 @@ end
 function RNN:updateGradInput(input, gradOutput)
     local gradInput = {}
     local gradState = torch.Tensor(gradOutput[1]:size()):zero()
-    local inputSeq, state0 = unpack(input)
-
+    local inputSeq, state0, global = unpack(input)
+    local gradGlobal, gradGlobalTmp
+    if global then
+        gradGlobal = torch.Tensor(global:size()):zero()
+    end
     for t = self.timespan, 1, -1 do
         local sum = gradOutput[t] + gradState
         if t == 1 then
-            gradInput[t], gradState = unpack(
+            gradInput[t], gradState, gradGlobalTmp = unpack(
                 self.replicas[t]:updateGradInput(
-                    {inputSeq[t], state0}, sum))
+                    {inputSeq[t], state0, global}, sum))
         else
-            gradInput[t], gradState = unpack(
+            gradInput[t], gradState, gradGlobalTmp = unpack(
                 self.replicas[t]:updateGradInput(
-                    {inputSeq[t], self.replicas[t - 1].output}, sum))
+                    {inputSeq[t], self.replicas[t - 1].output, global}, sum))
+        end
+        if global then
+            gradGlobal:add(gradGlobalTmp)
         end
     end
-    self.gradInput = {gradInput, gradState}
+    if global then
+        self.gradInput = {gradInput, gradState, gradGlobal}
+    else
+        self.gradInput = {gradInput, gradState}
+    end
     return self.gradInput
 end
 

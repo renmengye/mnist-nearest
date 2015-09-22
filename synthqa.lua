@@ -8,7 +8,9 @@ local nngraph = require('nngraph')
 local rnn = require('rnn')
 local constant = require('constant')
 local weights = require('weights')
+local gradient_stopper = require('gradient_stopper')
 local lazy_sequential = require('lazy_sequential')
+local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
 local utils = require('utils')
 local synthqa = {}
@@ -116,7 +118,8 @@ function synthqa.genHowManyObject(N)
         if numObj1 > 0 then
             for j = 1, numObj1 do
                 table.insert(items, {
-                    category = objectOfInterest, 
+                    category = objectOfInterest,
+                    color = 1,
                     grid = sampleGrid[j]
                 })
             end
@@ -129,6 +132,7 @@ function synthqa.genHowManyObject(N)
                 table.insert(items, {
                     category = (objectOfInterest - 1 + nextObj) % 
                                #synthqa.OBJECT + 1,
+                    color = 1,
                     grid = j 
                 })
             end
@@ -140,6 +144,7 @@ function synthqa.genHowManyObject(N)
                 table.insert(items, {
                     category = (objectOfInterest - 1 + 2 * nextObj) % 
                                #synthqa.OBJECT + 1,
+                    color = 1,
                     grid = j
                 })
             end
@@ -184,18 +189,24 @@ function synthqa.encodeItems(items)
                     grid, xCenter, yCenter), 2)
             return torch.Tensor({torch.normal(xCenter, synthqa.X_STD),
                     torch.normal(yCenter, synthqa.Y_STD),
-                    torch.normal(synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_STD),
+                    torch.normal(
+                        synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_STD),
                     torch.normal(
                         synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_STD)})
         else
             return torch.Tensor(
-                {xCenter, yCenter, synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_AVG})
+                {xCenter, yCenter, 
+                synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_AVG})
         end
     end
     local numDim = 1 + 1 + 4
     local result = torch.Tensor(#items, synthqa.NUM_GRID * numDim):zero()
     for i, example in ipairs(items) do
         local itemShuffle = torch.randperm(#example)
+        local used = {}
+        for j = 1, synthqa.NUM_GRID do
+            used[j] = false
+        end
         for j = 1, #example do
             local item = example[itemShuffle[j]]
             local itemCount = 0
@@ -208,16 +219,26 @@ function synthqa.encodeItems(items)
                     result[
                     {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
                     getCoord(value)
+                    used[value] = true
                 end
             end
         end
         -- Fill empty
-        for j = #example, synthqa.NUM_GRID do
-            result[{i, (j - 1) * numDim + 1}] = #synthqa.OBJECT + 1
-            result[{i, (j - 1) * numDim + 2}] = #synthqa.COLOR + 1
-            result[
-                    {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
-                    getCoord(value)
+        if #example < synthqa.NUM_GRID then
+            for j = #example + 1, synthqa.NUM_GRID do
+                local found
+                for k = 1, #used do
+                    if not used[k] then
+                        found = k
+                        break
+                    end
+                end
+                result[{i, (j - 1) * numDim + 1}] = #synthqa.OBJECT + 1
+                result[{i, (j - 1) * numDim + 2}] = #synthqa.COLOR + 1
+                result[
+                        {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
+                        getCoord(found)
+            end
         end
     end
     return result
@@ -261,7 +282,7 @@ function synthqa.prep(rawData)
 
     -- N x (54 + Q)
     local data = torch.cat(itemIds, questionIds, 2)
-    local labels = answerIds
+    local labels = answerIds:long()
     return data, labels
 end
 
@@ -286,95 +307,84 @@ function synthqa.createModel(params)
     local items = nn.Narrow(2, 1, 54)(input)
     local itemsReshape = nn.Reshape(9, 6)(items)
     local catId = nn.Select(3, 1)(itemsReshape)
-    local catIdReshape = nn.BatchReshape(1)(catId)
+    local catIdReshape = nn.BatchReshape()(catId)
+    catIdReshape.data.module.name = 'catIdReshape'
     local colorId = nn.Select(3, 2)(itemsReshape)
-    local colorIdReshape = nn.BatchReshape(1)(colorId)
+    local colorIdReshape = nn.BatchReshape()(colorId)
+    colorIdReshape.data.module.name = 'colorIdReshape'
     local coord = nn.Narrow(3, 3, 4)(itemsReshape)
     local coordReshape = nn.BatchReshape(4)(coord)
+    coordReshape.data.module.name = 'coordReshape'
     local catEmbed = nn.LookupTable(
-        params.numObject, params.objectEmbedDim)(catIdReshape)
+        params.numObject, params.objectEmbedDim)(
+        nn.GradientStopper()(catIdReshape))
     local colorEmbed = nn.LookupTable(
-        params.numColor, params.colorEmbedDim)(colorIdReshape)
+        params.numColor, params.colorEmbedDim)(
+        nn.GradientStopper()(colorIdReshape))
     local itemsJoined = nn.JoinTable(2, 2)(
         {catEmbed, colorEmbed, coordReshape})
-    local itemsJoinedReshape = nn.Reshape(9, itemRawDim)(itemsJoined)
+    local itemsJoinedReshape = nn.BatchReshape(9, itemRawDim)(itemsJoined)
+    itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
 
     -- Word Embeddings
     local wordIds = nn.Narrow(2, 55, params.questionLength)(input)
     local wordEmbed = nn.LookupTable(
-        #synthqa.idict, params.wordEmbedDim)(wordIds)
+        #synthqa.idict, params.wordEmbedDim)(
+        nn.GradientStopper()(wordIds))
     local wordEmbedSeq = nn.SplitTable(2)(wordEmbed)
-    local inputToEncoder = nn.gModule(
-        {input}, {wordEmbedSeq, itemsJoinedReshape})
+    local constantState = nn.Constant(params.lstmDim * 2, 0)(input)
 
     -- Encoder LSTM
-    local encoderCore = lstm.createUnit(params.wordEmbedDim, params.lstmDim)
-    local encoder = nn.RNN(encoderCore, params.questionLength)
-
-    -- Encoder state transfer
-    local encoderOutput = nn.Identity()()
-    local encoderOutputSel = nn.SelectTable(
-        params.questionLength)(encoderOutput)
-    local encoderStateTransfer = nn.gModule(
-        {encoderOutput}, {encoderOutputSel})
+    local encoderCore = lstm.createUnit(
+        params.wordEmbedDim, params.lstmDim)
+    local encoder = nn.RNN(
+        encoderCore, params.questionLength)({wordEmbedSeq, constantState})
+    local encoderStateSel = nn.SelectTable(
+        params.questionLength)(encoder)
 
     -- Decoder dummy input
-    local decoderInputId = nn.Identity()()
     local decoderInputConst = nn.Constant(
-        {params.decoderSteps, 1}, 0)(decoderInputId)
+        {params.decoderSteps, 1}, 0)(input)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
-    local decoderInput = nn.gModule({decoderInputId}, {decoderInputSplit})
-
-    -- Select items
-    local itemsSelectInput = nn.Identity()()
-    local itemsSelectTable = nn.SelectTable(2)(itemsSelectInput)
-    local itemsSelect = nn.gModule({itemsSelectInput}, {itemsSelectTable})
 
     -- Decoder LSTM
     local decoderCore = lstm.createAttentionUnit(
         1, params.lstmDim, 9, itemRawDim)
-    local decoder = nn.RNN(decoderCore, params.decoderSteps)
+    local decoder = nn.RNN(
+        decoderCore, params.decoderSteps)(
+        {decoderInputSplit, constantState, itemsJoinedReshape})
 
     -- Classify answer
-    local decoderOutput = nn.Identity()()
     local decoderOutputSel = nn.SelectTable(
-        params.decoderSteps)(decoderOutput)
-    local decoderOutputState = nn.NarrowTable(
+        params.decoderSteps)(decoder)
+    local decoderOutputState = nn.Narrow(
         2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
-    local classificationLayer = nn.Linear(
+    local classification = nn.Linear(
         params.lstmDim, params.vocabSize)(decoderOutputState)
-    local classification = nn.gModule({decoderOutput}, {classificationLayer})
 
     -- Build entire model
-    local all = nn.LazySequential()
-
-    all:addModule('input', inputToEncoder)
-    local encoderConcat = nn.ConcatTable()
-    local encoderSeq = nn.Sequential()
-    encoderSeq:add(encoder)
-    encoderSeq:add(encoderStateTransfer)
-    encoderConcat:add(decoderInput)
-    encoderConcat:add(itemsSelect)
-    encoderConcat:add(encoderSeq)
-
-    all:addModule('encoderConcat', encoderConcat)
+    local all = nn.LazyGModule({input}, {classification})
+    all:addModule('catEmbed', catEmbed)
+    all:addModule('colorEmbed', colorEmbed)
+    all:addModule('wordEmbed', wordEmbed)
+    all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
     all:addModule('answer', classification)
     all:setup()
 
     -- Expand LSTMs
-    encoder:expand()
-    decoder:expand()
+    encoder.data.module:expand()
+    decoder.data.module:expand()
 
     return all
 end
 
 ----------------------------------------------------------------------
-local N = 100
+local N = 1000
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData)
-logger:logInfo(data:size())
-logger:logInfo(labels:size())
+logger:logInfo(data:size(), 1)
+logger:logInfo(labels:size(), 1)
 data = {
     trainData = data[{{1, torch.floor(N / 2)}}],
     trainLabels = labels[{{1, torch.floor(N / 2)}}],
@@ -395,18 +405,36 @@ local params = {
     numColor = #synthqa.COLOR + 1
 }
 local model = synthqa.createModel(params)
-print(model)
-model.criterion = nn.MSECriterion()
+model.criterion = nn.CrossEntropyCriterion()
 model.decision = function(prediction)
     local score, idx = prediction:max(2)
     return idx
 end
 
+local learningRates = {
+    catEmbed = 0.1, 
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    answer = 0.01
+}
+
+local gradClipTable = {
+    catEmbed = 0.1, 
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    answer = 0.1
+}
+
 local optimConfig = {
     learningRate = 0.1,
-    --learningRates = learningRates,
+    learningRates = utils.fillVector(
+        torch.Tensor(model.w:size()), model.sliceLayer, learningRates),
     momentum = 0.9,
-    --gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
+    gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
 local loopConfig = {
