@@ -5,8 +5,74 @@ local nn = require('nn')
 -------------------------------------------------------------------------------
 local NNEvaluatorClass = torch.class('NNEvaluator')
 
+function NNEvaluator.getClassConfusionAnalyzer(decision, classes)
+    return function(pred, labels)
+        local N = labels:numel()
+        local labelDist = torch.histc(
+            labels:double(), #classes, 1, #classes)
+        local output = decision(pred):reshape(N)
+        local confusion = torch.Tensor(#classes, #classes):zero()
+        for n = 1, N do
+            confusion[labels[n]][output[n]] = 
+                confusion[labels[n]][output[n]] + 1
+        end
+
+        -- Percentage of class i being classified into class j
+        logger:logInfo('--- Confusion matrix ---')
+        io.write(string.format('%5s ', ''))
+        for i = 1, #classes do
+            if labelDist[i] > 0 then
+                io.write(string.format('%5s ', classes[i]))
+            end
+        end
+        io.write('\n')
+        for i = 1, #classes do
+            if labelDist[i] > 0 then
+                io.write(string.format('%5s ', classes[i]))
+                for j = 1, #classes do
+                    if labelDist[j] > 0 then
+                        io.write(string.format('%5.2f ', 
+                            confusion[i][j] / labelDist[i]))
+                    end
+                end
+                io.write('\n')
+            end
+        end
+        io.flush()
+    end
+end
+
 -------------------------------------------------------------------------------
-local function getAccuracyAnalyzer(decision)
+function NNEvaluator.getClassAccuracyAnalyzer(decision, classes)
+    return function (pred, labels)
+        local N = labels:numel()
+        local labelDist = torch.histc(
+            labels:double(), #classes, 1, #classes)
+        local output = decision(pred)
+        local outputDist = torch.histc(
+            output:double(), #classes, 1, #classes)
+        local correct = output:eq(labels):reshape(N)
+        local correctCls = {}
+        for n = 1, N do
+            if correct[n] == 1 then
+                correctCls[#correctCls + 1] = labels[n]
+            end
+        end
+        correctCls = torch.DoubleTensor(correctCls)
+        local correctClsDist = torch.histc(
+            correctCls, #classes, 1, #classes)
+        for n = 1, #classes do
+            if labelDist[n] > 0 then
+                logger:logInfo(string.format(
+                    '%s: %.3f', 
+                    classes[n], correctClsDist[n] / labelDist[n]))
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+function NNEvaluator.getAccuracyAnalyzer(decision)
     return function(pred, labels)
         local predClass = decision(pred)
         local correct = predClass:eq(labels):sum()
@@ -23,10 +89,11 @@ function NNEvaluator:__init(name, model, analyzers)
     elseif analyzers then
         logger:logError('type of analyzers must be table')
     else
-        self.analyzers = {}
-    end
-    if self.model.decision ~= nil then
-        table.insert(self.analyzers, getAccuracyAnalyzer(self.model.decision))
+        if self.model.decision ~= nil then
+            self.analyzers = {self.getAccuracyAnalyzer(self.model.decision)}
+        else
+            self.analyzers = {}
+        end
     end
 end
 

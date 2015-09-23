@@ -14,14 +14,15 @@ local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
 local utils = require('utils')
 local nntrainer = require('nntrainer')
+local nnevaluator = require('nnevaluator')
+local nnserializer = require('nnserializer')
 local optim_pkg = require 'optim'
 local synthqa = {}
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
-----------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 synthqa.OBJECT = {
     'circle',
     'square',
@@ -65,17 +66,17 @@ synthqa.WORDS = {
     'is'
 }
 
-synthqa.numObj1 = {
-    'zero',
-    'one',
-    'two',
-    'three',
-    'four',
-    'five',
-    'six',
-    'seven',
-    'eight',
-    'nine'
+synthqa.NUMBER = {
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9'
 }
 
 synthqa.NUM_GRID = #synthqa.X * #synthqa.Y
@@ -84,8 +85,7 @@ synthqa.OBJECT_SIZE_STD = 0.03
 synthqa.X_STD = 0.05
 synthqa.Y_STD = 0.05
 
-----------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 function combine(tables)
     local combined = {}
     local count = 1
@@ -100,17 +100,16 @@ end
 
 local imageSize = {300, 300}
 
-----------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 function synthqa.genHowManyObject(N)
     -- Uniform distribution between 0 and 9
     local dataset = {}
     for i = 1, N do
-        local numObj1 = torch.floor(torch.uniform() * #synthqa.numObj1)
+        local numObj1 = torch.floor(torch.uniform() * #synthqa.NUMBER)
         local objectOfInterest = i % #synthqa.OBJECT + 1
         local question = string.format(
             'how many %s', synthqa.OBJECT[objectOfInterest])
-        local answer = synthqa.numObj1[numObj1 + 1]
+        local answer = synthqa.NUMBER[numObj1 + 1]
         -- We shuffle a list of 1-9
         -- The first #numObj1 of grids are object of interest
         -- Then we have some numObj1 of other objects
@@ -169,8 +168,7 @@ function synthqa.genHowManyObject(N)
     return dataset
 end
 
-----------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 function synthqa.encodeItems(items)
     -- Category ID (1)
     -- Color ID (1)
@@ -249,6 +247,7 @@ function synthqa.encodeItems(items)
     return result
 end
 
+-------------------------------------------------------------------------------
 synthqa.dict = combine({
             synthqa.OBJECT, 
             synthqa.X, 
@@ -256,12 +255,11 @@ synthqa.dict = combine({
             synthqa.COLOR, 
             synthqa.RELATION, 
             synthqa.WORDS,
-            synthqa.numObj1
+            synthqa.NUMBER
         })
 synthqa.idict = imageqa.invertDict(synthqa.dict)
 
-----------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 function synthqa.prep(rawData)
     logger:logInfo(table.tostring(synthqa.dict), 2)
     logger:logInfo(table.tostring(synthqa.idict), 2)
@@ -291,7 +289,7 @@ function synthqa.prep(rawData)
     return data, labels
 end
 
-
+-------------------------------------------------------------------------------
 function synthqa.createModel(params)
     -- params.objectEmbedDim
     -- params.colorEmbedDim
@@ -364,17 +362,17 @@ function synthqa.createModel(params)
         params.decoderSteps)(decoder)
     local decoderOutputState = nn.Narrow(
         2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
-    local classification = nn.Linear(
+    local answer = nn.Linear(
         params.lstmDim, params.vocabSize)(decoderOutputState)
 
     -- Build entire model
-    local all = nn.LazyGModule({input}, {classification})
+    local all = nn.LazyGModule({input}, {answer})
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
     all:addModule('wordEmbed', wordEmbed)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
-    all:addModule('answer', classification)
+    all:addModule('answer', answer)
     all.criterion = nn.CrossEntropyCriterion()
     all.decision = function(pred)
         local score, idx = pred:max(2)
@@ -389,8 +387,27 @@ function synthqa.createModel(params)
     return all
 end
 
-----------------------------------------------------------------------
-local N = 10000
+-------------------------------------------------------------------------------
+local cmd = torch.CmdLine()
+cmd:text()
+cmd:text('Synthetic Counting Training')
+cmd:text()
+cmd:text('Options:')
+cmd:option('-train', false, 'whether to train a new network')
+cmd:option('-path', 'synthqa.w.h5', 'save network path')
+cmd:option('-save', false, 'whether to save the trained network')
+cmd:option('-num_ex', 10000, 'number of generated examples')
+cmd:text()
+opt = cmd:parse(arg)
+
+logger:logInfo('--- command line options ---')
+for key, value in pairs(opt) do
+    logger:logInfo(string.format('%s: %s', key, value))
+end
+logger:logInfo('----------------------------')
+
+-------------------------------------------------------------------------------
+local N = opt.num_ex
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData)
 logger:logInfo(data:size(), 1)
@@ -417,12 +434,12 @@ local params = {
 local model = synthqa.createModel(params)
 
 local learningRates = {
-    catEmbed = 0.8, 
-    colorEmbed = 0.8,
-    wordEmbed = 0.8,
-    encoder = 0.8,
-    decoder = 0.8,
-    answer = 0.1
+    catEmbed = 0.1, 
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    answer = 0.01
 }
 
 local gradClipTable = {
@@ -435,45 +452,46 @@ local gradClipTable = {
 }
 
 local optimConfig = {
-    learningRate = 0.1,
+    learningRate = 1.0,
     learningRates = utils.fillVector(
         torch.Tensor(model.w:size()), model.sliceLayer, learningRates),
     momentum = 0.9,
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
-local function classAccuracyAnalyzer(pred, labels, model)
-    local N = labels:numel()
-    local labelDist = torch.histc(labels:double(), #synthqa.idict, 1, #synthqa.idict)
-    local score, idx = pred:max(2)
-    local idxDist = torch.histc(idx:double(), #synthqa.idict, 1, #synthqa.idict)
-    local correct = idx:eq(labels):reshape(N)
-    local correctCls = {}
-    for n = 1, N do
-        if correct[n] == 1 then
-            correctCls[#correctCls + 1] = labels[n]
-        end
-    end
-    correctCls = torch.DoubleTensor(correctCls)
-    local correctClsDist = torch.histc(correctCls, #synthqa.idict, 1, #synthqa.idict)
-    for n = 1, #synthqa.idict do
-        if labelDist[n] > 0 then
-            logger:logInfo(string.format(
-                '%s: %.3f', synthqa.idict[n], correctClsDist[n] / labelDist[n]))
-        end
-    end
-end
-
 local loopConfig = {
     numEpoch = 10000,
-    trainBatchSize = 50,
-    evalBatchSize = 1000,
+    batchSize = 20,
     progressBar = true,
     analyzers = {classAccuracyAnalyzer},
-    savePath = 'synthqa.w.h5'
 }
 
 local optimizer = optim.sgd
 local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
-trainer:trainLoop(
-    data.trainData, data.trainLabels, data.testData, data.testLabels)
+local trainEval = NNEvaluator('train', model)
+local testEval = NNEvaluator('test', model, 
+    {
+        NNEvaluator.getClassAccuracyAnalyzer(model.decision, synthqa.idict),
+        NNEvaluator.getClassConfusionAnalyzer(model.decision, synthqa.idict),
+        NNEvaluator.getAccuracyAnalyzer(model.decision)
+    })
+
+if opt.train then
+    trainer:trainLoop(
+        data.trainData, data.trainLabels,
+        function (epoch)
+            if epoch % 5 == 0 then
+                trainEval:evaluate(data.trainData, data.trainLabels)
+            end
+            if epoch % 20 == 0 then
+                testEval:evaluate(data.testData, data.testLabels)
+            end
+            if opt.save then
+                if epoch % 100 == 0 then
+                    logger:logInfo('saving model')
+                    nnserializer.save(model, opt.path)
+                end
+            end
+        end
+        )
+end

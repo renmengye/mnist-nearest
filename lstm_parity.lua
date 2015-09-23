@@ -8,8 +8,9 @@ local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
 local logger = require('logger')()
 local utils = require('utils')
-local nnserializer = require('nnserializer')
 local nntrainer = require('nntrainer')
+local nnevaluator = require('nnevaluator')
+local nnserializer = require('nnserializer')
 local optim_pkg = require('optim')
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
@@ -17,31 +18,6 @@ torch.setdefaulttensortype('torch.FloatTensor')
 
 -------------------------------------------------------------------------------
 function createModel(numHidden, timespan)
-    -- The following code uses Sequential, which is less nice
-    -- local numInput = 1
-    -- local modelInput = nn.Identity()()
-    -- local splitTable = nn.SplitTable(2)(modelInput)
-    -- local constState = nn.Constant({2 * numHidden}, 0)(modelInput)
-    -- local inputNode = nn.gModule({modelInput}, {splitTable, constState})
-
-    -- local rnnCore = lstm.createUnit(numInput, numHidden)
-    -- local rnn = nn.RNN(rnnCore, timespan)
-
-    -- local lstmOutput = nn.Identity()()
-    -- local lstmOutputTableSel = nn.SelectTable(timespan)(lstmOutput)
-    -- local lstmOutputSel = nn.Narrow(
-    --     2, numHidden + 1, numHidden)(lstmOutputTableSel)
-    -- local linear = nn.Linear(numHidden, 1)(lstmOutputSel)
-    -- local sigmoid = nn.Sigmoid()(linear)
-    -- local aggregator = nn.gModule({lstmOutput}, {sigmoid})
-
-    -- local all = nn.LazySequential()
-    -- all:addModule('input', inputNode)
-    -- all:addModule('lstm', rnn)
-    -- all:addModule('sigmoid', aggregator)
-    -- all:setup()
-    -- rnn:expand()
-
     local numInput = 1
     local modelInput = nn.Identity()()
     local splitTable = nn.SplitTable(2)(modelInput)
@@ -100,8 +76,7 @@ local learningRates = {
 
 local loopConfig = {
     numEpoch = 100,
-    trainBatchSize = 20,
-    evalBatchSize = 1000,
+    batchSize = 20,
     progressBar = false
 }
 
@@ -116,18 +91,26 @@ local optimConfig = {
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
-logger:logInfo('saving model')
-nnserializer.save(model, 'lstm_parity.w.h5')
-
+local savePath = 'lstm_parity.w.h5'
 local nntrainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
+local trainEval = NNEvaluator('train', model)
+local testEval = NNEvaluator('test', model)
 nntrainer:trainLoop(
-    data.trainData, data.trainLabels, data.testData, data.testLabels)
-
-logger:logInfo('saving model')
-nnserializer.save(model, 'lstm_parity.w.h5')
+    data.trainData, data.trainLabels,
+    function(epoch)
+        if epoch % 10 == 0 then
+            trainEval:evaluate(data.trainData, data.trainLabels)
+            testEval:evaluate(data.testData, data.testLabels)
+        end
+        if epoch % 100 == 0 then
+            logger:logInfo('saving model')
+            nnserializer.save(model, savePath)
+        end
+    end
+    )
 
 logger:logInfo('loading model2')
 local model2 = createModel(H, T)
 local nnevaluator = NNEvaluator('test', model2)
 nnserializer.load(model2, 'lstm_parity.w.h5')
-nnevaluator:evaluate(data.testData, data.testLabels, loopConfig.evalBatchSize)
+nnevaluator:evaluate(data.testData, data.testLabels, 1000)

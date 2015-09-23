@@ -4,11 +4,16 @@ local nnserializer = {}
 
 function nnserializer.load(model, filename)
     local f = hdf5.open(filename, 'r')
-    local w = model.w
-    local dl_dw = model.dl_dw
     local parameterMap = model.parameterMap
-    for key, value in pairs(parameterMap) do
-        w[{{value[1], value[2]}}]:copy(f:read(key):all())
+    if parameterMap then
+        local w = model.w
+        local dl_dw = model.dl_dw
+        for key, value in pairs(parameterMap) do
+            w[{{value[1], value[2]}}]:copy(f:read(key):all())
+        end
+    else
+        local w, dl_dw = model:getParameters()
+        w:copy(f:read('__all__'):all())
     end
 end
 
