@@ -11,16 +11,19 @@ local gradient_stopper = require('gradient_stopper')
 local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
+-- local vr_neg_mse_reward = require('vr_neg_mse_reward')
+local vr_round_eq_reward = require('vr_round_eq_reward')
 local utils = require('utils')
 local nntrainer = require('nntrainer')
 local nnevaluator = require('nnevaluator')
 local nnserializer = require('nnserializer')
 local reinforce_container = require('reinforce_container')
-local optim_pkg = require 'optim'
+local optim_pkg = require('optim')
 local synthqa = {}
 
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
+torch.setnumthreads(1)
 
 -------------------------------------------------------------------------------
 synthqa.OBJECT = {
@@ -368,18 +371,21 @@ function synthqa.createModel(params, training)
     elseif params.objective == 'classification' then
         outputMap = nn.Linear(
             params.lstmDim, params.vocabSize)(decoderOutputState)
-        local answerlog = nn.LogSoftMax()(answer)
+        local answerlog = nn.LogSoftMax()(outputMap)
         final = answerlog
+    else
+        logger:logFatal(string.format(
+            'unknown training objective %s', params.objective))
     end
-    local expectedReward = mynn.Weights(1)(input)
 
     -- Build entire model
     -- Need MSECriterion for regression reward.
-    local all
+    local all, expectedReward
     if params.attentionMechanism == 'soft' then
         -- all = nn.LazyGModule({input}, {answer})
         all = nn.LazyGModule({input}, {final})
     elseif params.attentionMechanism == 'hard' then
+        expectedReward = mynn.Weights(1)(input)
         local reinforceOut = nn.Identity()({final, expectedReward})
         all = nn.LazyGModule({input}, {final, reinforceOut})
     else
@@ -393,14 +399,14 @@ function synthqa.createModel(params, training)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
     all:addModule('answer', outputMap)
+    if params.attentionMechanism == 'hard' then
+        all:addModule('expectedReward', expectedReward)
+    end
     all:setup()
 
     -- Expand LSTMs
     encoder.data.module:expand()
     decoder.data.module:expand()
-
-    local baseCriterion
-    
 
     if params.attentionMechanism == 'soft' then
         if params.objective == 'regression' then
@@ -424,9 +430,9 @@ function synthqa.createModel(params, training)
         if params.objective == 'regression' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.ModuleCriterion(
-                nn.ClassNLLCriterion(), nil, nn.Convert()))
+                nn.MSECriterion(), nil, nn.Convert()))
               :add(nn.ModuleCriterion(
-                mynn.VRNegMSEReward(rc), nil, nn.Convert()))
+                mynn.VRRoundEqReward(rc), nil, nn.Convert()))
         elseif params.objective == 'classification' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.ModuleCriterion(
@@ -439,9 +445,16 @@ function synthqa.createModel(params, training)
         end
     end
 
-    all.decision = function(pred)
-        local score, idx = pred:max(2)
-        return idx
+    if params.objective == 'regression' then
+        all.decision = function(pred)
+            local num = torch.round(pred)
+            return num
+        end
+    elseif params.objective == 'classification' then
+        all.decision = function(pred)
+            local score, idx = pred:max(2)
+            return idx
+        end
     end
 
     return all
@@ -475,7 +488,7 @@ local N = opt.num_ex
 -- synthqa.checkOverlap(rawData1, rawData2)
 
 local rawData = synthqa.genHowManyObject(N)
-local data, labels = synthqa.prep(rawData)
+local data, labels = synthqa.prep(rawData, opt.objective)
 logger:logInfo(data:size(), 1)
 logger:logInfo(labels:size(), 1)
 data = {
@@ -503,14 +516,15 @@ local params = {
 local trainModel = synthqa.createModel(params, true)
 local evalModel = synthqa.createModel(params, false)
 
-local learningRateDecay = 0.001
+-- local learningRateDecay = 0.001
 -- local learningRates = {
 --     catEmbed = 0.1, 
 --     colorEmbed = 0.1,
 --     wordEmbed = 0.1,
 --     encoder = 0.1,
 --     decoder = 0.1,
---     answer = 0.01
+--     answer = 0.01,
+--     expectedReward = 0.01
 -- }
 
 local learningRates = {
@@ -519,15 +533,25 @@ local learningRates = {
     wordEmbed = 1.0,
     encoder = 1.0,
     decoder = 1.0,
-    answer = 0.1
+    answer = 0.1,
+    expectedReward = 0.1
 }
 
+-- local gradClipTable = {
+--     catEmbed = 0.1,
+--     colorEmbed = 0.1,
+--     wordEmbed = 0.1,
+--     encoder = 0.1,
+--     decoder = 0.1,
+--     answer = 0.1
+-- }
+
 local gradClipTable = {
-    catEmbed = 0.1,
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
-    encoder = 0.1,
-    decoder = 0.1,
+    catEmbed = 1.0,
+    colorEmbed = 1.0,
+    wordEmbed = 1.0,
+    encoder = 1.0,
+    decoder = 1.0,
     answer = 0.1
 }
 
@@ -542,7 +566,7 @@ local optimConfig = {
 
 local loopConfig = {
     numEpoch = 10000,
-    batchSize = 200,
+    batchSize = 64,
     progressBar = true,
     analyzers = {classAccuracyAnalyzer},
 }
@@ -564,11 +588,20 @@ local visualizeAttention = function()
 
 end
 
+local answerDict, labelStart
+if opt.objective == 'regression' then
+    answerDict = synthqa.NUMBER
+    labelStart = 0
+else
+    answerDict = synthqa.idict
+    labelStart = 1
+end
+
 
 local testEval = NNEvaluator('test', evalModel, 
     {
-        NNEvaluator.getClassAccuracyAnalyzer(evalModel.decision, synthqa.idict),
-        NNEvaluator.getClassConfusionAnalyzer(evalModel.decision, synthqa.idict),
+        NNEvaluator.getClassAccuracyAnalyzer(evalModel.decision, answerDict, labelStart),
+        NNEvaluator.getClassConfusionAnalyzer(evalModel.decision, answerDict, labelStart),
         NNEvaluator.getAccuracyAnalyzer(evalModel.decision)
     })
 
@@ -581,7 +614,7 @@ if opt.train then
             if epoch % 1 == 0 then
                 trainEval:evaluate(data.trainData, data.trainLabels)
             end
-            if epoch % 5 == 0 then
+            if epoch % 1 == 0 then
                 testEval:evaluate(data.testData, data.testLabels)
                 -- visualizeAttention()
             end

@@ -5,16 +5,24 @@ local nn = require('nn')
 -------------------------------------------------------------------------------
 local NNEvaluatorClass = torch.class('NNEvaluator')
 
-function NNEvaluator.getClassConfusionAnalyzer(decision, classes)
+function NNEvaluator.getClassConfusionAnalyzer(decision, classes, labelStart)
+    if labelStart == nil then
+        labelStart = 1
+    end
+    local labelEnd = labelStart + #classes - 1
     return function(pred, labels)
         local N = labels:numel()
-        local labelDist = torch.histc(
-            labels:double(), #classes, 1, #classes)
+        local labelDist = torch.histc(labels:double(), #classes, labelStart, labelEnd)
         local output = decision(pred):reshape(N)
         local confusion = torch.Tensor(#classes, #classes):zero()
+
+        local reindex = function(idx)
+            return idx - labelStart + 1
+        end
+
         for n = 1, N do
-            confusion[labels[n]][output[n]] = 
-                confusion[labels[n]][output[n]] + 1
+            confusion[reindex(labels[n])][reindex(output[n])] = 
+                confusion[reindex(labels[n])][reindex(output[n])] + 1
         end
 
         -- Percentage of class i being classified into class j
@@ -43,24 +51,26 @@ function NNEvaluator.getClassConfusionAnalyzer(decision, classes)
 end
 
 -------------------------------------------------------------------------------
-function NNEvaluator.getClassAccuracyAnalyzer(decision, classes)
+function NNEvaluator.getClassAccuracyAnalyzer(decision, classes, labelStart)
+    if labelStart == nil then
+        labelStart = 1
+    end
+    local labelEnd = labelStart + #classes - 1
     return function (pred, labels)
         local N = labels:numel()
-        local labelDist = torch.histc(
-            labels:double(), #classes, 1, #classes)
+        local labelDist = torch.histc(labels:double(), #classes, labelStart, labelEnd)
         local output = decision(pred)
-        local outputDist = torch.histc(
-            output:double(), #classes, 1, #classes)
+        local outputDist = torch.histc(output:double(), #classes, labelStart, labelEnd)
         local correct = output:eq(labels):reshape(N)
         local correctCls = {}
+        local labelReindex = {}
         for n = 1, N do
             if correct[n] == 1 then
                 correctCls[#correctCls + 1] = labels[n]
             end
         end
         correctCls = torch.DoubleTensor(correctCls)
-        local correctClsDist = torch.histc(
-            correctCls, #classes, 1, #classes)
+        local correctClsDist = torch.histc(correctCls, #classes, labelStart, labelEnd)
         for n = 1, #classes do
             if labelDist[n] > 0 then
                 logger:logInfo(string.format(
@@ -77,9 +87,6 @@ end
 function NNEvaluator.getAccuracyAnalyzer(decision)
     return function(pred, labels)
         local predClass = decision(pred)
-        -- print(predClass:size())
-        -- print(labels:size())
-        -- print(torch.cat(predClass, labels, 2))
         local correct = predClass:eq(labels):sum()
         logger:logInfo(string.format('rate: %.3f', correct / labels:numel()))
     end
