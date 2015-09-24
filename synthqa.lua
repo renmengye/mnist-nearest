@@ -492,7 +492,7 @@ if opt.train then
             end
             if epoch % 1 == 0 then
                 testEval:evaluate(data.testData, data.testLabels)
-                visualizeAttention()
+                -- visualizeAttention()
             end
             if opt.save then
                 if epoch % 100 == 0 then
