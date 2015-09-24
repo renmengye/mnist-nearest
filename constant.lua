@@ -1,8 +1,9 @@
 local torch = require('torch')
 local nn = require('nn')
+local mynn = require('mynn')
 
 -- A module that outputs constant weights
-local Constant, parent = torch.class('nn.Constant', 'nn.Module')
+local Constant, parent = torch.class('mynn.Constant', 'nn.Module')
 
 function Constant:__init(shape, value)
     parent.__init(self)

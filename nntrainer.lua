@@ -41,7 +41,7 @@ function NNTrainer:getEvalFn(x, labels)
             w:copy(w_new)
         end
         dl_dw:zero()
-        local pred = self.model:forward(x)
+        local pred, pred2 = self.model:forward(x)
         local loss = self.model.criterion:forward(pred, labels)
         self.model:backward(x, self.model.criterion:backward(pred, labels))
         
@@ -61,6 +61,7 @@ function NNTrainer:trainEpoch(data, labels, batchSize)
     self.model:training()
     for xBatch, labelBatch in utils.getBatchIterator(
         data, labels, batchSize, self.loopConfig.progressBar) do
+        -- print(self.model.sliceLayer(self.model.dl_dw, 'wordEmbed'))
         -- local w1, dl_dw1 = self.model.moduleMap['lstm'].core:parameters()
         -- local replica = self.model.moduleMap['lstm'].replicas[1]
         -- local replica2 = self.model.moduleMap['lstm'].replicas[3]

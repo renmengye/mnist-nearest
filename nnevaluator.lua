@@ -77,6 +77,9 @@ end
 function NNEvaluator.getAccuracyAnalyzer(decision)
     return function(pred, labels)
         local predClass = decision(pred)
+        -- print(predClass:size())
+        -- print(labels:size())
+        -- print(torch.cat(predClass, labels, 2))
         local correct = predClass:eq(labels):sum()
         logger:logInfo(string.format('rate: %.3f', correct / labels:numel()))
     end
@@ -119,7 +122,11 @@ function NNEvaluator:evaluate(data, labels, batchSize)
     for xBatch, labelBatch in utils.getBatchIterator(
             data, labels, batchSize, false) do
         local pred, loss = self:forwardOnce(xBatch, labelBatch)
-        table.insert(epochPred, pred:clone())
+        if type(pred) == 'table' then
+            table.insert(epochPred, pred[1]:clone())
+        else
+            table.insert(epochPred, pred:clone())
+        end
         epochLoss = epochLoss + loss * xBatch:size(1) / data:size(1)
         collectgarbage()
     end

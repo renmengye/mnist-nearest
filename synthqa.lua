@@ -7,7 +7,6 @@ local nn = require('nn')
 local nngraph = require('nngraph')
 local rnn = require('rnn')
 local constant = require('constant')
-local weights = require('weights')
 local gradient_stopper = require('gradient_stopper')
 local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
@@ -16,6 +15,7 @@ local utils = require('utils')
 local nntrainer = require('nntrainer')
 local nnevaluator = require('nnevaluator')
 local nnserializer = require('nnserializer')
+local reinforce_container = require('reinforce_container')
 local optim_pkg = require 'optim'
 local synthqa = {}
 
@@ -209,7 +209,10 @@ synthqa.dict = combine({
 synthqa.idict = imageqa.invertDict(synthqa.dict)
 
 -------------------------------------------------------------------------------
-function synthqa.prep(rawData)
+function synthqa.prep(rawData, onehot)
+    if onehot == nil then
+        onehot = false
+    end
     logger:logInfo(table.tostring(synthqa.dict), 2)
     logger:logInfo(table.tostring(synthqa.idict), 2)
     local questions = {}
@@ -234,7 +237,15 @@ function synthqa.prep(rawData)
 
     -- N x (54 + Q)
     local data = torch.cat(itemIds, questionIds, 2)
-    local labels = answerIds:long()
+    local labels
+    if onehot then
+        labels = torch.Tensor(#rawData, #synthqa.idict):zero()
+        for i = 1, #answers do
+            labels[i][answerIds[i]] = 1
+        end
+    else
+        labels = answerIds:long()
+    end
     return data, labels
 end
 
@@ -274,7 +285,7 @@ function synthqa.checkOverlap(dataset1, dataset2)
 end
 
 -------------------------------------------------------------------------------
-function synthqa.createModel(params)
+function synthqa.createModel(params, training)
     -- params.objectEmbedDim
     -- params.colorEmbedDim
     -- params.questionLength
@@ -285,6 +296,10 @@ function synthqa.createModel(params)
     -- params.vocabSize
     -- params.numObject
     -- params.numColor
+    -- params.attentionMechanism: 'soft' or 'hard'
+    if training == nil then
+        training = false
+    end
 
     -- Input
     local input = nn.Identity()()
@@ -294,13 +309,13 @@ function synthqa.createModel(params)
     local items = nn.Narrow(2, 1, 54)(input)
     local itemsReshape = nn.Reshape(9, 6)(items)
     local catId = nn.Select(3, 1)(itemsReshape)
-    local catIdReshape = nn.BatchReshape()(catId)
+    local catIdReshape = mynn.BatchReshape()(catId)
     catIdReshape.data.module.name = 'catIdReshape'
     local colorId = nn.Select(3, 2)(itemsReshape)
-    local colorIdReshape = nn.BatchReshape()(colorId)
+    local colorIdReshape = mynn.BatchReshape()(colorId)
     colorIdReshape.data.module.name = 'colorIdReshape'
     local coord = nn.Narrow(3, 3, 4)(itemsReshape)
-    local coordReshape = nn.BatchReshape(4)(coord)
+    local coordReshape = mynn.BatchReshape(4)(coord)
     coordReshape.data.module.name = 'coordReshape'
     local catEmbed = nn.LookupTable(
         params.numObject, params.objectEmbedDim)(
@@ -310,7 +325,7 @@ function synthqa.createModel(params)
         nn.GradientStopper()(colorIdReshape))
     local itemsJoined = nn.JoinTable(2, 2)(
         {catEmbed, colorEmbed, coordReshape})
-    local itemsJoinedReshape = nn.BatchReshape(9, itemRawDim)(itemsJoined)
+    local itemsJoinedReshape = mynn.BatchReshape(9, itemRawDim)(itemsJoined)
     itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
 
     -- Word Embeddings
@@ -319,7 +334,7 @@ function synthqa.createModel(params)
         #synthqa.idict, params.wordEmbedDim)(
         nn.GradientStopper()(wordIds))
     local wordEmbedSeq = nn.SplitTable(2)(wordEmbed)
-    local constantState = nn.Constant(params.lstmDim * 2, 0)(input)
+    local constantState = mynn.Constant(params.lstmDim * 2, 0)(input)
 
     -- Encoder LSTM
     local encoderCore = lstm.createUnit(
@@ -330,13 +345,14 @@ function synthqa.createModel(params)
         params.questionLength)(encoder)
 
     -- Decoder dummy input
-    local decoderInputConst = nn.Constant(
+    local decoderInputConst = mynn.Constant(
         {params.decoderSteps, 1}, 0)(input)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
 
     -- Decoder LSTM
     local decoderCore = lstm.createAttentionUnit(
-        1, params.lstmDim, 9, itemRawDim)
+        1, params.lstmDim, 9, itemRawDim, 0.1, 
+        params.attentionMechanism, training)
     local decoder = nn.RNN(
         decoderCore, params.decoderSteps)(
         {decoderInputSplit, constantState, itemsJoinedReshape})
@@ -348,25 +364,54 @@ function synthqa.createModel(params)
         2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
     local answer = nn.Linear(
         params.lstmDim, params.vocabSize)(decoderOutputState)
+    local answerlog = nn.LogSoftMax()(answer)
+    local expectedReward = mynn.Weights(1)(input)
 
     -- Build entire model
-    local all = nn.LazyGModule({input}, {answer})
+    local all
+    if params.attentionMechanism == 'soft' then
+        -- all = nn.LazyGModule({input}, {answer})
+        all = nn.LazyGModule({input}, {answerlog})
+    elseif params.attentionMechanism == 'hard' then
+        local reinforceOut = nn.Identity()({answerlog, expectedReward})
+        all = nn.LazyGModule({input}, {answerlog, reinforceOut})
+    else
+        logger:logFatal(string.format(
+            'unknown attentionMechanism %s', params.attentionMechanism))
+    end
+
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
     all:addModule('wordEmbed', wordEmbed)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
     all:addModule('answer', answer)
-    all.criterion = nn.CrossEntropyCriterion()
-    all.decision = function(pred)
-        local score, idx = pred:max(2)
-        return idx
-    end
     all:setup()
 
     -- Expand LSTMs
     encoder.data.module:expand()
     decoder.data.module:expand()
+
+    if params.attentionMechanism == 'soft' then
+        all.criterion = nn.ClassNLLCriterion()
+        -- all.criterion = nn.CrossEntropyCriterion()
+    elseif params.attentionMechanism == 'hard' then
+        -- Setup criterions and rewards
+        local reinforceUnits = {}
+        for i = 1, params.decoderSteps do
+            table.insert(
+                reinforceUnits, decoder.data.module.replicas[i].reinforceUnit)
+        end
+        local rc = ReinforceContainer(reinforceUnits)
+        all.criterion = nn.ParallelCriterion(true)
+          :add(nn.ModuleCriterion(nn.ClassNLLCriterion(), nil, nn.Convert()))
+          :add(nn.ModuleCriterion(nn.VRClassReward(rc), nil, nn.Convert()))
+    end
+
+    all.decision = function(pred)
+        local score, idx = pred:max(2)
+        return idx
+    end
 
     return all
 end
@@ -381,6 +426,7 @@ cmd:option('-train', false, 'whether to train a new network')
 cmd:option('-path', 'synthqa.w.h5', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
 cmd:option('-num_ex', 10000, 'number of generated examples')
+cmd:option('-attention', 'soft', 'soft or hard attention')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -417,18 +463,30 @@ local params = {
     decoderSteps = 12,
     vocabSize = #synthqa.idict,
     numObject = #synthqa.OBJECT + 1,
-    numColor = #synthqa.COLOR + 1
+    numColor = #synthqa.COLOR + 1,
+    attentionMechanism = opt.attention
 }
-local model = synthqa.createModel(params)
 
-local learningRateDecay = 0.001
+local trainModel = synthqa.createModel(params, true)
+local evalModel = synthqa.createModel(params, false)
+
+-- local learningRateDecay = 0.001
+-- local learningRates = {
+--     catEmbed = 0.1, 
+--     colorEmbed = 0.1,
+--     wordEmbed = 0.1,
+--     encoder = 0.1,
+--     decoder = 0.1,
+--     answer = 0.01
+-- }
+
 local learningRates = {
-    catEmbed = 0.8, 
-    colorEmbed = 0.8,
-    wordEmbed = 0.8,
-    encoder = 0.3,
-    decoder = 0.3,
-    answer = 0.03
+    catEmbed = 1.0, 
+    colorEmbed = 1.0,
+    wordEmbed = 1.0,
+    encoder = 1.0,
+    decoder = 1.0,
+    answer = 0.1
 }
 
 local gradClipTable = {
@@ -443,10 +501,10 @@ local gradClipTable = {
 local optimConfig = {
     learningRate = 1.0,
     learningRates = utils.fillVector(
-        torch.Tensor(model.w:size()), model.sliceLayer, learningRates),
+        torch.Tensor(trainModel.w:size()), trainModel.sliceLayer, learningRates),
     learningRateDecay = learningRateDecay,
     momentum = 0.9,
-    gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
+    gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
 }
 
 local loopConfig = {
@@ -457,15 +515,13 @@ local loopConfig = {
 }
 
 local optimizer = optim.sgd
-local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
-local trainEval = NNEvaluator('train', model)
+local trainer = NNTrainer(trainModel, loopConfig, optimizer, optimConfig)
+local trainEval = NNEvaluator('train', evalModel)
 
 local visualizeGrid = function(grid)
 end
 
 local visualizeAttention = function()
-    -- model:evaluate()
-    -- model:forward(testData[{{1, 10}}])
     logger:logInfo('attention analyzer')
     local offset = torch.floor(N / 2)
     for i = 1, 10 do
@@ -476,17 +532,19 @@ local visualizeAttention = function()
 end
 
 
-local testEval = NNEvaluator('test', model, 
+local testEval = NNEvaluator('test', evalModel, 
     {
-        NNEvaluator.getClassAccuracyAnalyzer(model.decision, synthqa.idict),
-        NNEvaluator.getClassConfusionAnalyzer(model.decision, synthqa.idict),
-        NNEvaluator.getAccuracyAnalyzer(model.decision)
+        NNEvaluator.getClassAccuracyAnalyzer(evalModel.decision, synthqa.idict),
+        NNEvaluator.getClassConfusionAnalyzer(evalModel.decision, synthqa.idict),
+        NNEvaluator.getAccuracyAnalyzer(evalModel.decision)
     })
 
 if opt.train then
     trainer:trainLoop(
         data.trainData, data.trainLabels,
         function (epoch)
+            -- Copy the weights from the training model
+            evalModel.w:copy(trainModel.w)
             if epoch % 1 == 0 then
                 trainEval:evaluate(data.trainData, data.trainLabels)
             end

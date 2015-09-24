@@ -1,4 +1,5 @@
-local BatchReshape, parent = torch.class('nn.BatchReshape', 'nn.Module')
+local mynn = require('mynn')
+local BatchReshape, parent = torch.class('mynn.BatchReshape', 'nn.Module')
 
 function BatchReshape:__init(...)
    parent.__init(self)

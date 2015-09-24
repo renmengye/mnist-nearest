@@ -4,6 +4,7 @@ local nngraph = require('nngraph')
 local weights = require('weights')
 local batch_reshape = require('batch_reshape')
 local logger = require('logger')()
+local dpnn = require('dpnn')
 local lstm = {}
 
 ----------------------------------------------------------------------
@@ -50,9 +51,22 @@ function lstm.createUnit(inputDim, hiddenDim, initRange)
 end
 
 function lstm.createAttentionUnit(
-    inputDim, hiddenDim, numItems, itemDim, initRange)
+                                    inputDim, 
+                                    hiddenDim, 
+                                    numItems, 
+                                    itemDim, 
+                                    initRange, 
+                                    attentionMechanism,
+                                    training)
     if initRange == nil then
         initRange = 0.1
+    end
+    -- Soft or hard attention
+    if attentionMechanism == nil then
+        attentionMechanism = 'soft'
+    end
+    if training == nil then
+        training = false
     end
     local input = nn.Identity()()
 
@@ -62,25 +76,42 @@ function lstm.createAttentionUnit(
     local cellPrev = nn.Narrow(2, 1, hiddenDim)(statePrev)
     local hiddenPrev = nn.Narrow(2, hiddenDim + 1, hiddenDim)(statePrev)
 
-    local itemsReshape = nn.BatchReshape(itemDim)(items)
+    local itemsReshape = mynn.BatchReshape(itemDim)(items)
     itemsReshape.data.module.name = 'itemsReshape'
     local hiddenPrevLT = nn.Linear(hiddenDim, itemDim)(hiddenPrev)
     local hiddenPrevLTRepeat = nn.Replicate(numItems, 2)(hiddenPrevLT)
 
     local itemsLT = nn.Linear(itemDim, itemDim)(itemsReshape)
-    local itemsLTReshape = nn.BatchReshape(numItems, itemDim)(itemsLT)
+    local itemsLTReshape = mynn.BatchReshape(numItems, itemDim)(itemsLT)
     itemsLTReshape.data.module.name = 'itemsLTReshape'
 
     local query = nn.Tanh()(
         nn.CAddTable()({hiddenPrevLTRepeat, itemsLTReshape}))
 
-    local attentionWeight = nn.Reshape(itemDim, 1)(nn.Weights(itemDim)(input))
+    local attentionWeight = nn.Reshape(itemDim, 1)(mynn.Weights(itemDim)(input))
     attentionWeight.data.module.name = 'attentionWeight'
     local mm1 = nn.MM()({query, attentionWeight})
     mm1.data.module.name = 'MM1'
     local attention = nn.Reshape(numItems)(mm1)
     attention.data.module.name = 'attention'
     local attentionNorm = nn.SoftMax()(attention)
+    
+    -- Build attention using either 'hard' or 'soft' attention
+    local attention
+    if attentionMechanism == 'hard' then
+        attention = nn.ReinforceCategorical(training)(attentionNorm)
+        -- if training then
+        --     attention = nn.ReinforceCategorical(training)(attentionNorm)
+        -- else
+        --     attention = nn.ArgMax(attentionNorm)
+        -- end
+    elseif attentionMechanism == 'soft' then
+        attention = attentionNorm
+    else
+        logger:logFatal(string.format(
+            'unknown attention mechanism: %s', attentionMechanism))
+    end
+
     local attentionReshape = nn.Reshape(1, numItems)(attentionNorm)
     local mm2 = nn.MM()({attentionReshape, items})
     mm2.data.module.name = 'MM2'
@@ -107,7 +138,8 @@ function lstm.createAttentionUnit(
     local hiddenNext = nn.CMulTable()({outGate, nn.Tanh()(cellNext)})
     local stateNext = nn.JoinTable(2, 2)({cellNext, hiddenNext})
     stateNext.name = 'attStateNext'
-    local stackModule = nn.gModule({input, statePrev, items}, {stateNext})
+    local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
+    coreModule.reinforceUnit = attention.data.module
 
     inGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
     inGateLin.data.module.bias:fill(1)
@@ -117,7 +149,7 @@ function lstm.createAttentionUnit(
     forgetGateLin.data.module.bias:fill(1)
     outGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
     outGateLin.data.module.bias:fill(1)
-    return stackModule
+    return coreModule
 end
 
 ----------------------------------------------------------------------
