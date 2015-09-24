@@ -1,0 +1,2 @@
+mynn = {}
+return mynn
