@@ -64,8 +64,10 @@ function NNEvaluator.getClassAccuracyAnalyzer(decision, classes)
         for n = 1, #classes do
             if labelDist[n] > 0 then
                 logger:logInfo(string.format(
-                    '%s: %.3f', 
-                    classes[n], correctClsDist[n] / labelDist[n]))
+                    '%s: %.3f (%d)', 
+                    classes[n], 
+                    correctClsDist[n] / labelDist[n], 
+                    labelDist[n]))
             end
         end
     end

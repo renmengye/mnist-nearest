@@ -102,58 +102,29 @@ local imageSize = {300, 300}
 
 -------------------------------------------------------------------------------
 function synthqa.genHowManyObject(N)
-    -- Uniform distribution between 0 and 9
     local dataset = {}
     for i = 1, N do
-        local numObj1 = torch.floor(torch.uniform() * #synthqa.NUMBER)
         local objectOfInterest = i % #synthqa.OBJECT + 1
         local question = string.format(
             'how many %s', synthqa.OBJECT[objectOfInterest])
-        local answer = synthqa.NUMBER[numObj1 + 1]
-        -- We shuffle a list of 1-9
-        -- The first #numObj1 of grids are object of interest
-        -- Then we have some numObj1 of other objects
-        -- Then we have empty grids
-        local sampleGrid = torch.randperm(synthqa.NUM_GRID)
         local items = {}
-        if numObj1 > 0 then
-            for j = 1, numObj1 do
-                table.insert(items, {
-                    category = objectOfInterest,
-                    color = 1,
-                    grid = sampleGrid[j]
-                })
-            end
+        local numObj = {}
+
+        -- Empty object is encoded as the largest object ID.
+        for j = 1, #synthqa.OBJECT + 1 do
+            numObj[j] = 0
         end
-        local numObj2 = torch.floor(
-            torch.uniform() * (synthqa.NUM_GRID - numObj1))
-        local nextObj = torch.ceil(torch.uniform() * 2)
-        if numObj2 > 0 then
-            for j = numObj1 + 1, numObj1 + numObj2 do
-                table.insert(items, {
-                    category = (objectOfInterest - 1 + nextObj) % 
-                               #synthqa.OBJECT + 1,
-                    color = 1,
-                    grid = j 
-                })
-            end
+        for j = 1, synthqa.NUM_GRID do
+            local objCat = torch.ceil(torch.uniform() * (#synthqa.OBJECT + 1))
+            numObj[objCat] = numObj[objCat] + 1
+            table.insert(items, {category = objCat, color = 1, grid = j})
         end
-        local numObj3 = torch.floor(
-            torch.uniform() * (synthqa.NUM_GRID - numObj1 - numObj2))
-        if numObj3 > 0 then
-            for j = numObj1 + numObj2 + 1, numObj1 + numObj2 + numObj3 do
-                table.insert(items, {
-                    category = (objectOfInterest - 1 + 2 * nextObj) % 
-                               #synthqa.OBJECT + 1,
-                    color = 1,
-                    grid = j
-                })
-            end
-        end
+        local answer = synthqa.NUMBER[numObj[objectOfInterest] + 1]
         logger:logInfo(
             string.format(
                 'N1: %d, N2: %d, N3: %d, N: %d', 
-                numObj1, numObj2, numObj3, numObj1 + numObj2 + numObj3), 2)
+                numObj[1], numObj[2], numObj[3], 
+                numObj[1] + numObj[2] + numObj[3]), 2)
         logger:logInfo(
             string.format(
                 'Q: %s, A: %s', 
@@ -169,7 +140,7 @@ function synthqa.genHowManyObject(N)
 end
 
 -------------------------------------------------------------------------------
-function synthqa.encodeItems(items)
+function synthqa.encodeItems(allItems)
     -- Category ID (1)
     -- Color ID (1)
     -- X, Y coordinates (2)
@@ -200,16 +171,13 @@ function synthqa.encodeItems(items)
         end
     end
     local numDim = 1 + 1 + 4
-    local result = torch.Tensor(#items, synthqa.NUM_GRID * numDim):zero()
-    for i, example in ipairs(items) do
-        local used = {}
-        for j = 1, synthqa.NUM_GRID do
-            used[j] = false
-        end
-        if #example > 0 then
-            local itemShuffle = torch.randperm(#example)
-            for j = 1, #example do
-                local item = example[itemShuffle[j]]
+    local result = torch.Tensor(#allItems, synthqa.NUM_GRID * numDim):zero()
+    for i, items in ipairs(allItems) do
+        if #items > 0 then
+            local itemShuffle = torch.randperm(#items)
+            -- Shuffle items
+            for j = 1, #items do
+                local item = items[itemShuffle[j]]
                 local itemCount = 0
                 for key, value in pairs(item) do
                     if key == 'category' then
@@ -220,27 +188,8 @@ function synthqa.encodeItems(items)
                         result[
                         {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
                         getCoord(value)
-                        used[value] = true
                     end
                 end
-            end
-        end
-
-        -- Fill empty
-        if #example < synthqa.NUM_GRID then
-            for j = #example + 1, synthqa.NUM_GRID do
-                local found
-                for k = 1, #used do
-                    if not used[k] then
-                        found = k
-                        break
-                    end
-                end
-                result[{i, (j - 1) * numDim + 1}] = #synthqa.OBJECT + 1
-                result[{i, (j - 1) * numDim + 2}] = #synthqa.COLOR + 1
-                result[
-                        {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
-                        getCoord(found)
             end
         end
     end
@@ -287,6 +236,41 @@ function synthqa.prep(rawData)
     local data = torch.cat(itemIds, questionIds, 2)
     local labels = answerIds:long()
     return data, labels
+end
+
+-------------------------------------------------------------------------------
+function synthqa.checkExists(dataset, example)
+    for i, example2 in ipairs(dataset) do
+        if example.items.question == example2.items.question and 
+            example.items.answer == example2.items.answer then
+            local allSame = true
+            for j, item2 in ipairs(example2.items) do
+                local item = example.items[j]
+                if item2.category ~= item.category or
+                    item2.color ~= item.color or
+                    item2.grid ~= item.grid then
+                    allSame = false
+                    break
+                end
+            end
+            if allSame then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-------------------------------------------------------------------------------
+function synthqa.checkOverlap(dataset1, dataset2)
+    local overlap = 0
+    for i, example in ipairs(dataset2) do
+        if synthqa.checkExists(dataset1, example) then
+            overlap = overlap + 1
+        end
+    end
+    logger:logInfo(string.format(
+        '%.3f of dataset2 overlap with dataset1', overlap / #dataset2))
 end
 
 -------------------------------------------------------------------------------
@@ -408,6 +392,13 @@ logger:logInfo('----------------------------')
 
 -------------------------------------------------------------------------------
 local N = opt.num_ex
+
+local rawData1 = synthqa.genHowManyObject(N / 2)
+local rawData2 = synthqa.genHowManyObject(N / 2)
+synthqa.checkOverlap(rawData1, rawData2)
+print(table.tostring(rawData1[1]))
+print(table.tostring(rawData2[1]))
+
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData)
 logger:logInfo(data:size(), 1)
@@ -433,6 +424,7 @@ local params = {
 }
 local model = synthqa.createModel(params)
 
+local learningRateDecay = 0.001
 local learningRates = {
     catEmbed = 0.1, 
     colorEmbed = 0.1,
@@ -455,6 +447,7 @@ local optimConfig = {
     learningRate = 1.0,
     learningRates = utils.fillVector(
         torch.Tensor(model.w:size()), model.sliceLayer, learningRates),
+    learningRateDecay = learningRateDecay,
     momentum = 0.9,
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
@@ -480,10 +473,10 @@ if opt.train then
     trainer:trainLoop(
         data.trainData, data.trainLabels,
         function (epoch)
-            if epoch % 5 == 0 then
+            if epoch % 1 == 0 then
                 trainEval:evaluate(data.trainData, data.trainLabels)
             end
-            if epoch % 20 == 0 then
+            if epoch % 1 == 0 then
                 testEval:evaluate(data.testData, data.testLabels)
             end
             if opt.save then
