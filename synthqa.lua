@@ -470,24 +470,24 @@ local params = {
 local trainModel = synthqa.createModel(params, true)
 local evalModel = synthqa.createModel(params, false)
 
--- local learningRateDecay = 0.001
--- local learningRates = {
---     catEmbed = 0.1, 
---     colorEmbed = 0.1,
---     wordEmbed = 0.1,
---     encoder = 0.1,
---     decoder = 0.1,
---     answer = 0.01
--- }
-
+local learningRateDecay = 0.001
 local learningRates = {
-    catEmbed = 1.0, 
-    colorEmbed = 1.0,
-    wordEmbed = 1.0,
-    encoder = 1.0,
-    decoder = 1.0,
-    answer = 0.1
+    catEmbed = 0.1, 
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    answer = 0.01
 }
+
+-- local learningRates = {
+--     catEmbed = 1.0, 
+--     colorEmbed = 1.0,
+--     wordEmbed = 1.0,
+--     encoder = 1.0,
+--     decoder = 1.0,
+--     answer = 0.1
+-- }
 
 local gradClipTable = {
     catEmbed = 0.1,
