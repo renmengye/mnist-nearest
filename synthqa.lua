@@ -297,6 +297,8 @@ function synthqa.createModel(params, training)
     -- params.numObject
     -- params.numColor
     -- params.attentionMechanism: 'soft' or 'hard'
+    -- params.objective
+    
     if training == nil then
         training = false
     end
@@ -392,8 +394,18 @@ function synthqa.createModel(params, training)
     encoder.data.module:expand()
     decoder.data.module:expand()
 
+    local baseCriterion
+    
+
     if params.attentionMechanism == 'soft' then
-        all.criterion = nn.ClassNLLCriterion()
+        if params.objective == 'regression' then
+            all.criterion = nn.MSECriterion()
+        elseif params.objective == 'classification' then
+            all.criterion = nn.ClassNLLCriterion()
+        else
+            logger:logFatal(string.format(
+                'unknown training objective %s', params.objective))
+        end
         -- all.criterion = nn.CrossEntropyCriterion()
     elseif params.attentionMechanism == 'hard' then
         -- Setup criterions and rewards
@@ -403,9 +415,23 @@ function synthqa.createModel(params, training)
                 reinforceUnits, decoder.data.module.replicas[i].reinforceUnit)
         end
         local rc = ReinforceContainer(reinforceUnits)
-        all.criterion = nn.ParallelCriterion(true)
-          :add(nn.ModuleCriterion(nn.ClassNLLCriterion(), nil, nn.Convert()))
-          :add(nn.ModuleCriterion(nn.VRClassReward(rc), nil, nn.Convert()))
+
+        if params.objective == 'regression' then
+            all.criterion = nn.ParallelCriterion(true)
+              :add(nn.ModuleCriterion(
+                nn.ClassNLLCriterion(), nil, nn.Convert()))
+              :add(nn.ModuleCriterion(
+                mynn.VRNegMSEReward(rc), nil, nn.Convert()))
+        elseif params.objective == 'classification' then
+            all.criterion = nn.ParallelCriterion(true)
+              :add(nn.ModuleCriterion(
+                nn.ClassNLLCriterion(), nil, nn.Convert()))
+              :add(nn.ModuleCriterion(
+                nn.VRClassReward(rc), nil, nn.Convert()))
+        else
+            logger:logFatal(string.format(
+                'unknown training objective %s', params.objective))
+        end
     end
 
     all.decision = function(pred)
@@ -471,23 +497,23 @@ local trainModel = synthqa.createModel(params, true)
 local evalModel = synthqa.createModel(params, false)
 
 local learningRateDecay = 0.001
-local learningRates = {
-    catEmbed = 0.1, 
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
-    encoder = 0.1,
-    decoder = 0.1,
-    answer = 0.01
-}
-
 -- local learningRates = {
---     catEmbed = 1.0, 
---     colorEmbed = 1.0,
---     wordEmbed = 1.0,
---     encoder = 1.0,
---     decoder = 1.0,
---     answer = 0.1
+--     catEmbed = 0.1, 
+--     colorEmbed = 0.1,
+--     wordEmbed = 0.1,
+--     encoder = 0.1,
+--     decoder = 0.1,
+--     answer = 0.01
 -- }
+
+local learningRates = {
+    catEmbed = 1.0, 
+    colorEmbed = 1.0,
+    wordEmbed = 1.0,
+    encoder = 1.0,
+    decoder = 1.0,
+    answer = 0.1
+}
 
 local gradClipTable = {
     catEmbed = 0.1,
@@ -509,7 +535,7 @@ local optimConfig = {
 
 local loopConfig = {
     numEpoch = 10000,
-    batchSize = 20,
+    batchSize = 200,
     progressBar = true,
     analyzers = {classAccuracyAnalyzer},
 }
