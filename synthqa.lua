@@ -209,9 +209,9 @@ synthqa.dict = combine({
 synthqa.idict = imageqa.invertDict(synthqa.dict)
 
 -------------------------------------------------------------------------------
-function synthqa.prep(rawData, onehot)
-    if onehot == nil then
-        onehot = false
+function synthqa.prep(rawData, objective)
+    if objective == nil then
+        objective = 'classification'
     end
     logger:logInfo(table.tostring(synthqa.dict), 2)
     logger:logInfo(table.tostring(synthqa.idict), 2)
@@ -237,14 +237,10 @@ function synthqa.prep(rawData, onehot)
 
     -- N x (54 + Q)
     local data = torch.cat(itemIds, questionIds, 2)
-    local labels
-    if onehot then
-        labels = torch.Tensor(#rawData, #synthqa.idict):zero()
-        for i = 1, #answers do
-            labels[i][answerIds[i]] = 1
-        end
-    else
-        labels = answerIds:long()
+    local labels = answerIds:long()
+    if objective == 'regression' then
+        labels = labels - synthqa.dict['0']
+        labels = labels:float()
     end
     return data, labels
 end
@@ -362,19 +358,28 @@ function synthqa.createModel(params, training)
         params.decoderSteps)(decoder)
     local decoderOutputState = nn.Narrow(
         2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
-    local answer = nn.Linear(
-        params.lstmDim, params.vocabSize)(decoderOutputState)
-    local answerlog = nn.LogSoftMax()(answer)
+
+    local outputMap, final
+    if params.objective == 'regression' then
+        outputMap = nn.Linear(params.lstmDim, 1)(decoderOutputState)
+        final = outputMap
+    elseif params.objective == 'classification' then
+        outputMap = nn.Linear(
+            params.lstmDim, params.vocabSize)(decoderOutputState)
+        local answerlog = nn.LogSoftMax()(answer)
+        final = answerlog
+    end
     local expectedReward = mynn.Weights(1)(input)
 
     -- Build entire model
+    -- Need MSECriterion for regression reward.
     local all
     if params.attentionMechanism == 'soft' then
         -- all = nn.LazyGModule({input}, {answer})
-        all = nn.LazyGModule({input}, {answerlog})
+        all = nn.LazyGModule({input}, {final})
     elseif params.attentionMechanism == 'hard' then
-        local reinforceOut = nn.Identity()({answerlog, expectedReward})
-        all = nn.LazyGModule({input}, {answerlog, reinforceOut})
+        local reinforceOut = nn.Identity()({final, expectedReward})
+        all = nn.LazyGModule({input}, {final, reinforceOut})
     else
         logger:logFatal(string.format(
             'unknown attentionMechanism %s', params.attentionMechanism))
@@ -385,7 +390,7 @@ function synthqa.createModel(params, training)
     all:addModule('wordEmbed', wordEmbed)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
-    all:addModule('answer', answer)
+    all:addModule('answer', outputMap)
     all:setup()
 
     -- Expand LSTMs
@@ -427,6 +432,7 @@ cmd:option('-path', 'synthqa.w.h5', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
 cmd:option('-num_ex', 10000, 'number of generated examples')
 cmd:option('-attention', 'soft', 'soft or hard attention')
+cmd:option('-objective', 'classification', 'classification or regression')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -464,7 +470,8 @@ local params = {
     vocabSize = #synthqa.idict,
     numObject = #synthqa.OBJECT + 1,
     numColor = #synthqa.COLOR + 1,
-    attentionMechanism = opt.attention
+    attentionMechanism = opt.attention,
+    objective = opt.objective
 }
 
 local trainModel = synthqa.createModel(params, true)
@@ -548,14 +555,14 @@ if opt.train then
             if epoch % 1 == 0 then
                 trainEval:evaluate(data.trainData, data.trainLabels)
             end
-            if epoch % 1 == 0 then
+            if epoch % 5 == 0 then
                 testEval:evaluate(data.testData, data.testLabels)
                 -- visualizeAttention()
             end
             if opt.save then
                 if epoch % 100 == 0 then
                     logger:logInfo('saving model')
-                    nnserializer.save(model, opt.path)
+                    nnserializer.save(evalModel, opt.path)
                 end
             end
         end
