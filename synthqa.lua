@@ -392,12 +392,9 @@ logger:logInfo('----------------------------')
 
 -------------------------------------------------------------------------------
 local N = opt.num_ex
-
-local rawData1 = synthqa.genHowManyObject(N / 2)
-local rawData2 = synthqa.genHowManyObject(N / 2)
-synthqa.checkOverlap(rawData1, rawData2)
-print(table.tostring(rawData1[1]))
-print(table.tostring(rawData2[1]))
+-- local rawData1 = synthqa.genHowManyObject(N / 2)
+-- local rawData2 = synthqa.genHowManyObject(N / 2)
+-- synthqa.checkOverlap(rawData1, rawData2)
 
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData)
@@ -426,12 +423,12 @@ local model = synthqa.createModel(params)
 
 local learningRateDecay = 0.001
 local learningRates = {
-    catEmbed = 0.1, 
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
-    encoder = 0.1,
-    decoder = 0.1,
-    answer = 0.01
+    catEmbed = 0.8, 
+    colorEmbed = 0.8,
+    wordEmbed = 0.8,
+    encoder = 0.3,
+    decoder = 0.3,
+    answer = 0.03
 }
 
 local gradClipTable = {
@@ -462,6 +459,23 @@ local loopConfig = {
 local optimizer = optim.sgd
 local trainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
 local trainEval = NNEvaluator('train', model)
+
+local visualizeGrid = function(grid)
+end
+
+local visualizeAttention = function()
+    -- model:evaluate()
+    -- model:forward(testData[{{1, 10}}])
+    logger:logInfo('attention analyzer')
+    local offset = torch.floor(N / 2)
+    for i = 1, 10 do
+        print(string.format('question: %s', rawData[offset + i].question))
+        print(string.format('answer: %s', rawData[offset + i].answer))
+    end
+
+end
+
+
 local testEval = NNEvaluator('test', model, 
     {
         NNEvaluator.getClassAccuracyAnalyzer(model.decision, synthqa.idict),
@@ -478,6 +492,7 @@ if opt.train then
             end
             if epoch % 1 == 0 then
                 testEval:evaluate(data.testData, data.testLabels)
+                visualizeAttention()
             end
             if opt.save then
                 if epoch % 100 == 0 then
