@@ -124,7 +124,7 @@ function NNEvaluator:evaluate(data, labels, batchSize)
     local N = data:size()[1]
     local epochPred = {}
     local epochLoss = 0
-    self.model:evaluate()
+    -- self.model:evaluate()
     local printed = false
     for xBatch, labelBatch in utils.getBatchIterator(
             data, labels, batchSize, false) do

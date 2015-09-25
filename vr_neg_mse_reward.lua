@@ -23,7 +23,7 @@ end
 function VRNegMSEReward:updateOutput(input, target)
    assert(torch.type(input) == 'table')
    local input = self:toBatch(input[1], 1)
-   self.reward = -(input - target):cmul(input - target):mul(self.scale)
+   self.reward = -(input - target):cmul(input - target):sum(2):mul(self.scale):reshape(input:size(1))
    self.output = -self.reward:sum()
    if self.sizeAverage then
       self.output = self.output/input:size(1)

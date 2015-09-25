@@ -7,10 +7,14 @@ local torch = require('torch')
 local RNN, parent = torch.class('nn.RNN', 'nn.Module')
 
 -------------------------------------------------------------------------------
-function RNN:__init(coreUnit, timespan)
+function RNN:__init(coreUnit, timespan, interconnect)
     parent.__init(self)
+    if interconnect == nil then
+        interconnect = true
+    end
     self.core = coreUnit
     self.timespan = timespan
+    self.interconnect = interconnect
 end
 
 -------------------------------------------------------------------------------
@@ -21,13 +25,30 @@ end
 -------------------------------------------------------------------------------
 function RNN:updateOutput(input)
     local output = {}
-    local inputSeq, state0, global = unpack(input)
+    local inputSeq, state0, global
+    -- if self.name then
+    --     print(self.name)
+    -- end
+    if self.interconnect then
+        inputSeq, state0, global = unpack(input)
+    else
+        inputSeq = input
+    end
     for t = 1, self.timespan do
         if t == 1 then
-            output[t] = self.replicas[t]:forward({inputSeq[t], state0, global})
+            if state0 == nil then
+                output[t] = self.replicas[t]:forward(inputSeq[t])
+            else
+                output[t] = self.replicas[t]:forward({inputSeq[t], state0, global})
+            end
         else
-            output[t] = self.replicas[t]:forward({inputSeq[t], output[t - 1], global})
+            if state0 == nil then
+                output[t] = self.replicas[t]:forward(inputSeq[t])
+            else
+                output[t] = self.replicas[t]:forward({inputSeq[t], output[t - 1], global})
+            end
         end
+        -- print(output[t])
     end
     return output
 end
@@ -36,7 +57,12 @@ end
 function RNN:updateGradInput(input, gradOutput)
     local gradInput = {}
     local gradState = torch.Tensor(gradOutput[1]:size()):zero()
-    local inputSeq, state0, global = unpack(input)
+    local inputSeq, state0, global
+    if self.interconnect then
+        inputSeq, state0, global = unpack(input)
+    else
+        inputSeq = input
+    end
     local gradGlobal, gradGlobalTmp
     if global then
         gradGlobal = torch.Tensor(global:size()):zero()
@@ -44,13 +70,21 @@ function RNN:updateGradInput(input, gradOutput)
     for t = self.timespan, 1, -1 do
         local sum = gradOutput[t] + gradState
         if t == 1 then
-            gradInput[t], gradState, gradGlobalTmp = unpack(
-                self.replicas[t]:updateGradInput(
-                    {inputSeq[t], state0, global}, sum))
+            if state0 == nil then
+                gradInput[t] = self.replicas[t]:updateGradInput(inputSeq[t], gradOutput[t])
+            else
+                gradInput[t], gradState, gradGlobalTmp = unpack(
+                    self.replicas[t]:updateGradInput(
+                        {inputSeq[t], state0, global}, sum))
+            end
         else
-            gradInput[t], gradState, gradGlobalTmp = unpack(
-                self.replicas[t]:updateGradInput(
-                    {inputSeq[t], self.replicas[t - 1].output, global}, sum))
+            if state0 == nil then
+                gradInput[t] = self.replicas[t]:updateGradInput(inputSeq[t], gradOutput[t])
+            else
+                gradInput[t], gradState, gradGlobalTmp = unpack(
+                    self.replicas[t]:updateGradInput(
+                        {inputSeq[t], self.replicas[t - 1].output, global}, sum))
+            end
         end
         if global then
             gradGlobal:add(gradGlobalTmp)
@@ -59,7 +93,11 @@ function RNN:updateGradInput(input, gradOutput)
     if global then
         self.gradInput = {gradInput, gradState, gradGlobal}
     else
-        self.gradInput = {gradInput, gradState}
+        if state0 then
+            self.gradInput = {gradInput, gradState}
+        else
+            self.gradInput = gradInput
+        end
     end
     return self.gradInput
 end
@@ -72,7 +110,9 @@ function RNN:accGradParameters(input, gradOutput, scale)
     for t = self.timespan, 1, -1 do
         local gradSum = gradOutput[t] + gradState
         self.replicas[t]:accGradParameters(input[t], gradSum)
-        gradState = self.replicas[t].gradInput[2]
+        if self.interconnect then
+            gradState = self.replicas[t].gradInput[2]
+        end
     end
 end
 
@@ -103,6 +143,18 @@ function RNN.cloneModule(net, T)
     end
     mem:close()
     return clones
+end
+
+function RNN:train()
+    for i, r in ipairs(self.replicas) do
+        r:train()
+    end
+end
+
+function RNN:evaluate()
+    for i, r in ipairs(self.replicas) do
+        r:evaluate()
+    end
 end
 
 -------------------------------------------------------------------------------

@@ -12,19 +12,21 @@ function LazyGModule:__init(...)
     params = {...}
     parent.__init(self, params[1], params[2])
     self.moduleMap = {}
+    self.moduleNames = {}
     self.moduleList = {}
 end
 
 -------------------------------------------------------------------------------
 function LazyGModule:addModule(name, module)
     self.moduleMap[name] = module.data.module
+    table.insert(self.moduleNames, name)
     table.insert(self.moduleList, module.data.module)
 end
 
 -------------------------------------------------------------------------------
 function LazyGModule:setup()
     self.w, self.dl_dw = utils.combineAllParameters(self.moduleList)
-    self.parameterMap = utils.getParameterMap(self.moduleMap)
+    self.parameterMap = utils.getParameterMap(self.moduleList, self.moduleNames)
     self.sliceLayer = utils.sliceLayer(self.parameterMap)
     self.isSetup = true
 end

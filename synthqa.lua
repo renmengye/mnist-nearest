@@ -11,7 +11,7 @@ local gradient_stopper = require('gradient_stopper')
 local lazy_sequential = require('lazy_sequential')
 local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
--- local vr_neg_mse_reward = require('vr_neg_mse_reward')
+local vr_neg_mse_reward = require('vr_neg_mse_reward')
 local vr_round_eq_reward = require('vr_round_eq_reward')
 local utils = require('utils')
 local nntrainer = require('nntrainer')
@@ -297,6 +297,8 @@ function synthqa.createModel(params, training)
     -- params.numColor
     -- params.attentionMechanism: 'soft' or 'hard'
     -- params.objective
+    -- params.aggregatorWeights
+    -- params.outputMapWeights
     
     if training == nil then
         training = false
@@ -344,23 +346,54 @@ function synthqa.createModel(params, training)
         encoderCore, params.questionLength)({wordEmbedSeq, constantState})
     local encoderStateSel = nn.SelectTable(
         params.questionLength)(encoder)
+    encoder.data.module.name = 'encoder'
 
     -- Decoder dummy input
     local decoderInputConst = mynn.Constant(
         {params.decoderSteps, 1}, 0)(input)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
 
-    -- Decoder LSTM
+    -- Decoder LSTM (1st layer)
     local decoderCore = lstm.createAttentionUnit(
         1, params.lstmDim, 9, itemRawDim, 0.1, 
         params.attentionMechanism, training)
     local decoder = nn.RNN(
         decoderCore, params.decoderSteps)(
         {decoderInputSplit, constantState, itemsJoinedReshape})
+    decoder.data.module.name = 'decoder'
+
+    local createBinaryInput = function()
+        local input = nn.Identity()()
+        local initRange = 0.1
+        local inputHidden = nn.Narrow(2, params.lstmDim + 1, params.lstmDim)(input)
+        local aggregate = nn.Linear(params.lstmDim, 1)(inputHidden)
+        local sigmoid = nn.Sigmoid()(aggregate)
+        local stochastic = nn.ReinforceBernoulli()(sigmoid)
+        local unit = nn.gModule({input}, {stochastic})
+        aggregate.data.module.weight:uniform(-initRange / 2, initRange / 2)
+        aggregate.data.module.bias:uniform(-initRange / 2, initRange / 2)
+        unit.moduleMap = {
+            input = stochastic.data.module
+        }
+        unit.reinforceUnit = stochastic.data.module
+        return unit
+    end
+    local binaryInput = nn.RNN(createBinaryInput(), params.decoderSteps, false)(decoder)
+    binaryInput.data.module.name = 'binary'
+
+    -- Decoder LSTM (2nd stochastic binary input layer)
+    local aggregator = nn.RNN(
+        lstm.createUnit(1, params.lstmDim), params.decoderSteps)(
+        {binaryInput, constantState})
+    if params.aggregatorWeights then
+        local agg_w, agg_dl_dw = aggregator.data.module.core:getParameters()
+        agg_w:copy(params.aggregatorWeights)
+    end
+    aggregator.data.module.name = 'aggregator'
 
     -- Classify answer
     local decoderOutputSel = nn.SelectTable(
-        params.decoderSteps)(decoder)
+        params.decoderSteps)(aggregator)
     local decoderOutputState = nn.Narrow(
         2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
 
@@ -376,6 +409,13 @@ function synthqa.createModel(params, training)
     else
         logger:logFatal(string.format(
             'unknown training objective %s', params.objective))
+    end
+
+    if params.outputMapWeights then
+        local ow, odldw = outputMap.data.module:getParameters()
+        -- print(ow:size())
+        -- print(params.outputMapWeights:size())
+        ow:copy(params.outputMapWeights)
     end
 
     -- Build entire model
@@ -398,6 +438,8 @@ function synthqa.createModel(params, training)
     all:addModule('wordEmbed', wordEmbed)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
+    all:addModule('binaryInput', binaryInput)
+    all:addModule('aggregator', aggregator)
     all:addModule('answer', outputMap)
     if params.attentionMechanism == 'hard' then
         all:addModule('expectedReward', expectedReward)
@@ -407,6 +449,8 @@ function synthqa.createModel(params, training)
     -- Expand LSTMs
     encoder.data.module:expand()
     decoder.data.module:expand()
+    binaryInput.data.module:expand()
+    aggregator.data.module:expand()
 
     if params.attentionMechanism == 'soft' then
         if params.objective == 'regression' then
@@ -424,6 +468,9 @@ function synthqa.createModel(params, training)
         for i = 1, params.decoderSteps do
             table.insert(
                 reinforceUnits, decoder.data.module.replicas[i].reinforceUnit)
+            table.insert(
+                reinforceUnits, 
+                binaryInput.data.module.replicas[i].reinforceUnit)
         end
         local rc = ReinforceContainer(reinforceUnits)
 
@@ -432,7 +479,7 @@ function synthqa.createModel(params, training)
               :add(nn.ModuleCriterion(
                 nn.MSECriterion(), nil, nn.Convert()))
               :add(nn.ModuleCriterion(
-                mynn.VRRoundEqReward(rc), nil, nn.Convert()))
+                mynn.VRNegMSEReward(rc), nil, nn.Convert()))
         elseif params.objective == 'classification' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.ModuleCriterion(
@@ -460,170 +507,4 @@ function synthqa.createModel(params, training)
     return all
 end
 
--------------------------------------------------------------------------------
-local cmd = torch.CmdLine()
-cmd:text()
-cmd:text('Synthetic Counting Training')
-cmd:text()
-cmd:text('Options:')
-cmd:option('-train', false, 'whether to train a new network')
-cmd:option('-path', 'synthqa.w.h5', 'save network path')
-cmd:option('-save', false, 'whether to save the trained network')
-cmd:option('-num_ex', 10000, 'number of generated examples')
-cmd:option('-attention', 'soft', 'soft or hard attention')
-cmd:option('-objective', 'classification', 'classification or regression')
-cmd:text()
-opt = cmd:parse(arg)
-
-logger:logInfo('--- command line options ---')
-for key, value in pairs(opt) do
-    logger:logInfo(string.format('%s: %s', key, value))
-end
-logger:logInfo('----------------------------')
-
--------------------------------------------------------------------------------
-local N = opt.num_ex
--- local rawData1 = synthqa.genHowManyObject(N / 2)
--- local rawData2 = synthqa.genHowManyObject(N / 2)
--- synthqa.checkOverlap(rawData1, rawData2)
-
-local rawData = synthqa.genHowManyObject(N)
-local data, labels = synthqa.prep(rawData, opt.objective)
-logger:logInfo(data:size(), 1)
-logger:logInfo(labels:size(), 1)
-data = {
-    trainData = data[{{1, torch.floor(N / 2)}}],
-    trainLabels = labels[{{1, torch.floor(N / 2)}}],
-    testData = data[{{torch.floor(N / 2) + 1, N}}],
-    testLabels = labels[{{torch.floor(N / 2) + 1, N}}]
-}
-
-local params = {
-    objectEmbedDim = 2,
-    colorEmbedDim = 2,
-    questionLength = 3,
-    wordEmbedDim = 10,
-    lstmDim = 10,
-    itemDim = 10,
-    decoderSteps = 12,
-    vocabSize = #synthqa.idict,
-    numObject = #synthqa.OBJECT + 1,
-    numColor = #synthqa.COLOR + 1,
-    attentionMechanism = opt.attention,
-    objective = opt.objective
-}
-
-local trainModel = synthqa.createModel(params, true)
-local evalModel = synthqa.createModel(params, false)
-
--- local learningRateDecay = 0.001
--- local learningRates = {
---     catEmbed = 0.1, 
---     colorEmbed = 0.1,
---     wordEmbed = 0.1,
---     encoder = 0.1,
---     decoder = 0.1,
---     answer = 0.01,
---     expectedReward = 0.01
--- }
-
-local learningRates = {
-    catEmbed = 1.0, 
-    colorEmbed = 1.0,
-    wordEmbed = 1.0,
-    encoder = 1.0,
-    decoder = 1.0,
-    answer = 0.1,
-    expectedReward = 0.1
-}
-
--- local gradClipTable = {
---     catEmbed = 0.1,
---     colorEmbed = 0.1,
---     wordEmbed = 0.1,
---     encoder = 0.1,
---     decoder = 0.1,
---     answer = 0.1
--- }
-
-local gradClipTable = {
-    catEmbed = 1.0,
-    colorEmbed = 1.0,
-    wordEmbed = 1.0,
-    encoder = 1.0,
-    decoder = 1.0,
-    answer = 0.1
-}
-
-local optimConfig = {
-    learningRate = 1.0,
-    learningRates = utils.fillVector(
-        torch.Tensor(trainModel.w:size()), trainModel.sliceLayer, learningRates),
-    learningRateDecay = learningRateDecay,
-    momentum = 0.9,
-    gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
-}
-
-local loopConfig = {
-    numEpoch = 10000,
-    batchSize = 64,
-    progressBar = true,
-    analyzers = {classAccuracyAnalyzer},
-}
-
-local optimizer = optim.sgd
-local trainer = NNTrainer(trainModel, loopConfig, optimizer, optimConfig)
-local trainEval = NNEvaluator('train', evalModel)
-
-local visualizeGrid = function(grid)
-end
-
-local visualizeAttention = function()
-    logger:logInfo('attention analyzer')
-    local offset = torch.floor(N / 2)
-    for i = 1, 10 do
-        print(string.format('question: %s', rawData[offset + i].question))
-        print(string.format('answer: %s', rawData[offset + i].answer))
-    end
-
-end
-
-local answerDict, labelStart
-if opt.objective == 'regression' then
-    answerDict = synthqa.NUMBER
-    labelStart = 0
-else
-    answerDict = synthqa.idict
-    labelStart = 1
-end
-
-
-local testEval = NNEvaluator('test', evalModel, 
-    {
-        NNEvaluator.getClassAccuracyAnalyzer(evalModel.decision, answerDict, labelStart),
-        NNEvaluator.getClassConfusionAnalyzer(evalModel.decision, answerDict, labelStart),
-        NNEvaluator.getAccuracyAnalyzer(evalModel.decision)
-    })
-
-if opt.train then
-    trainer:trainLoop(
-        data.trainData, data.trainLabels,
-        function (epoch)
-            -- Copy the weights from the training model
-            evalModel.w:copy(trainModel.w)
-            if epoch % 1 == 0 then
-                trainEval:evaluate(data.trainData, data.trainLabels)
-            end
-            if epoch % 1 == 0 then
-                testEval:evaluate(data.testData, data.testLabels)
-                -- visualizeAttention()
-            end
-            if opt.save then
-                if epoch % 100 == 0 then
-                    logger:logInfo('saving model')
-                    nnserializer.save(evalModel, opt.path)
-                end
-            end
-        end
-        )
-end
+return synthqa

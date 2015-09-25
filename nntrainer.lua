@@ -42,6 +42,8 @@ function NNTrainer:getEvalFn(x, labels)
         end
         dl_dw:zero()
         local pred, pred2 = self.model:forward(x)
+        -- print(pred:size())
+        -- print(labels:size())
         local loss = self.model.criterion:forward(pred, labels)
         self.model:backward(x, self.model.criterion:backward(pred, labels))
         

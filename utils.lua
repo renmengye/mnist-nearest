@@ -76,6 +76,7 @@ function utils.fillVector(vector, sliceLayer, valueTable)
     for key, value in pairs(valueTable) do
         sliceLayer(vector, key):fill(value)
     end
+    return vector
 end
 
 -------------------------------------------------------------------------------
@@ -109,10 +110,11 @@ function utils.combineAllParameters(...)
     local parameters = {}
     local gradParameters = {}
     for i = 1, #networks do
+        logger:logInfo(i, 2)
         local net_params, net_grads = networks[i]:parameters()
-
         if net_params then
             for _, p in pairs(net_params) do
+                logger:logInfo(p:size(), 2)
                 parameters[#parameters + 1] = p
             end
             for _, g in pairs(net_grads) do
@@ -205,19 +207,19 @@ function utils.combineAllParameters(...)
 end
 
 -------------------------------------------------------------------------------
-function utils.getParameterMap(params)
+function utils.getParameterMap(params, names)
     local counter = 0
     local parameterMap = {}
-    for k, net in pairs(params) do
+    for k, net in ipairs(params) do
         local net_params, net_grads = net:parameters()
-        parameterMap[k] = {}
-        parameterMap[k][1] = counter + 1
+        parameterMap[names[k]] = {}
+        parameterMap[names[k]][1] = counter + 1
         if net_params then
             for _, p in pairs(net_params) do
                 counter = counter + p:numel()
             end
         end
-        parameterMap[k][2] = counter
+        parameterMap[names[k]][2] = counter
     end
     return parameterMap
 end

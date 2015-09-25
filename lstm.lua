@@ -8,6 +8,62 @@ local dpnn = require('dpnn')
 local lstm = {}
 
 ----------------------------------------------------------------------
+function lstm.createBinaryInputUnit(inputDim2, hiddenDim, initRange)
+    if initRange == nil then
+        initRange = 0.1
+    end
+    local inputDim = 1
+    local input = nn.Identity()()
+    local statePrev = nn.Identity()()
+    local cellPrev = nn.Narrow(2, 1, hiddenDim)(statePrev)
+    local hiddenPrev = nn.Narrow(2, hiddenDim + 1, hiddenDim)(statePrev)
+    
+    local inputHidden = nn.Narrow(2, inputDim2 + 1, inputDim2)(input)
+    local aggregate = nn.Linear(inputDim2, 1)(inputHidden)
+    local sigmoid = nn.Sigmoid()(aggregate)
+    local stochastic = nn.ReinforceBernoulli()(sigmoid)
+
+    local joinState1 = nn.JoinTable(2, 2)({stochastic, statePrev})
+    joinState1.data.module.name = 'joinState1'
+    local joinState2 = nn.JoinTable(2, 2)({stochastic, hiddenPrev})
+    joinState2.name = 'joinState2'
+    local state1 = hiddenDim * 2 + inputDim
+    local state2 = hiddenDim + inputDim
+    local inGateLin = nn.Linear(state1, hiddenDim)(joinState1)
+    local inGate = nn.Sigmoid()(inGateLin)
+    local inTransformLin = nn.Linear(state2, hiddenDim)(joinState2)
+    local inTransform = nn.Tanh()(inTransformLin)
+    local forgetGateLin = nn.Linear(state1, hiddenDim)(joinState1)
+    local forgetGate = nn.Sigmoid()(forgetGateLin)
+    local outGateLin = nn.Linear(state1, hiddenDim)(joinState1)
+    local outGate = nn.Sigmoid()(outGateLin)
+    local cellNext = nn.CAddTable()({
+        nn.CMulTable()({forgetGate, cellPrev}),
+        nn.CMulTable()({inGate, inTransform})
+    })
+    local hiddenNext = nn.CMulTable()({outGate, nn.Tanh()(cellNext)})
+    local stateNext = nn.JoinTable(2, 2)({cellNext, hiddenNext})
+    stateNext.data.module.name = 'stateNext'
+    local stackModule = nn.gModule({input, statePrev}, {stateNext})
+    stackModule.reinforceUnit = stochastic.data.module
+    stackModule.moduleMap = {
+        input = stochastic.data.module
+    }
+
+    aggregate.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    aggregate.data.module.bias:uniform(-initRange / 2, initRange / 2)
+    inGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    inGateLin.data.module.bias:fill(1)
+    inTransformLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    inTransformLin.data.module.bias:fill(0)
+    forgetGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    forgetGateLin.data.module.bias:fill(1)
+    outGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    outGateLin.data.module.bias:fill(1)
+    return stackModule
+end
+
+
 function lstm.createUnit(inputDim, hiddenDim, initRange)
     if initRange == nil then
         initRange = 0.1
@@ -38,6 +94,9 @@ function lstm.createUnit(inputDim, hiddenDim, initRange)
     local stateNext = nn.JoinTable(2, 2)({cellNext, hiddenNext})
     stateNext.data.module.name = 'stateNext'
     local stackModule = nn.gModule({input, statePrev}, {stateNext})
+    stackModule.moduleMap = {
+        hiddenNext = hiddenNext.data.module
+    }
 
     inGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
     inGateLin.data.module.bias:fill(1)
@@ -88,7 +147,8 @@ function lstm.createAttentionUnit(
     local query = nn.Tanh()(
         nn.CAddTable()({hiddenPrevLTRepeat, itemsLTReshape}))
 
-    local attentionWeight = nn.Reshape(itemDim, 1)(mynn.Weights(itemDim)(input))
+    local attWeight = mynn.Weights(itemDim)(input)
+    local attentionWeight = nn.Reshape(itemDim, 1)(attWeight)
     attentionWeight.data.module.name = 'attentionWeight'
     local mm1 = nn.MM()({query, attentionWeight})
     mm1.data.module.name = 'MM1'
@@ -112,7 +172,7 @@ function lstm.createAttentionUnit(
             'unknown attention mechanism: %s', attentionMechanism))
     end
 
-    local attentionReshape = nn.Reshape(1, numItems)(attentionNorm)
+    local attentionReshape = nn.Reshape(1, numItems)(attention)
     local mm2 = nn.MM()({attentionReshape, items})
     mm2.data.module.name = 'MM2'
     local attendedItems = nn.Reshape(itemDim)(mm2)
@@ -140,7 +200,14 @@ function lstm.createAttentionUnit(
     stateNext.name = 'attStateNext'
     local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
     coreModule.reinforceUnit = attention.data.module
-
+    coreModule.moduleMap = {
+        softAttention = attentionNorm.data.module,
+        attention = attention.data.module
+    }
+    
+    attWeight.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    itemsLT.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    hiddenPrevLT.data.module.weight:uniform(-initRange / 2, initRange / 2)
     inGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
     inGateLin.data.module.bias:fill(1)
     inTransformLin.data.module.weight:uniform(-initRange / 2, initRange / 2)

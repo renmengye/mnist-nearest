@@ -42,5 +42,9 @@ function Weights:accGradParameters(input, gradOutput, scale)
     self.gradWeight:add(gradOutput:sum(1))
 end
 
+function Weights:parameters()
+    return {self.weight}, {self.gradWeight}
+end
+
 -- we do not need to accumulate parameters when sharing
 Weights.sharedAccUpdateGradParameters = Weights.accUpdateGradParameters
