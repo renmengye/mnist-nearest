@@ -65,9 +65,9 @@ function VRAttentionCountReward:updateOutput(input, target)
 
             -- Attention reward
             if attItemId == GTItemId[n] then
-                self.attentionReward[n][t] = self.attentionReward[n][t] + 5
+                self.attentionReward[n][t] = self.attentionReward[n][t] + 1
             else
-                self.attentionReward[n][t] = self.attentionReward[n][t] - 5
+                self.attentionReward[n][t] = self.attentionReward[n][t] - 1
             end
 
             -- Counting reward
