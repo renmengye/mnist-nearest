@@ -42,11 +42,12 @@ function NNTrainer:getEvalFn(x, labels)
         end
         dl_dw:zero()
         local pred, pred2 = self.model:forward(x)
-        -- print(pred:size())
-        -- print(labels:size())
         local loss = self.model.criterion:forward(pred, labels)
         self.model:backward(x, self.model.criterion:backward(pred, labels))
         
+        -- print(self.model.w[{{3625,3625}}])
+        -- print(self.model.dl_dw[{{3625, 3625}}])
+        -- print(self.model.sliceLayer(self.model.dl_dw, 'encoder'))
         logger:logInfo(
             string.format('Before clip: %.4f', torch.norm(dl_dw)), 2)
         if self.optimConfig.gradientClip then

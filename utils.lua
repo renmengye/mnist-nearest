@@ -59,11 +59,11 @@ function utils.sliceLayer(parameterMap)
     logger:logInfo(table.tostring(parameterMap), 1)
     return function(vector, name)
         if parameterMap[name] == nil then
-            logger:logFatal(string.format('key %s does not exist', name))
+            logger:logFatal(string.format('key "%s" does not exist', name))
         end
         local i = parameterMap[name][1]
         local j = parameterMap[name][2]
-        if i < j then
+        if i <= j then
             return vector[{{i, j}}]
         else
             return torch.Tensor()
@@ -74,6 +74,7 @@ end
 -------------------------------------------------------------------------------
 function utils.fillVector(vector, sliceLayer, valueTable)
     for key, value in pairs(valueTable) do
+        print(key, value)
         sliceLayer(vector, key):fill(value)
     end
     return vector
@@ -216,6 +217,8 @@ function utils.getParameterMap(params, names)
         parameterMap[names[k]][1] = counter + 1
         if net_params then
             for _, p in pairs(net_params) do
+                logger:logInfo(names[k])
+                logger:logInfo(p:numel())
                 counter = counter + p:numel()
             end
         end

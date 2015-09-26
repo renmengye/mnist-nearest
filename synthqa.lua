@@ -13,6 +13,7 @@ local lazy_gmodule = require('lazy_gmodule')
 local batch_reshape = require('batch_reshape')
 local vr_neg_mse_reward = require('vr_neg_mse_reward')
 local vr_round_eq_reward = require('vr_round_eq_reward')
+local vr_attention_count_reward = require('vr_attention_count_reward')
 local utils = require('utils')
 local nntrainer = require('nntrainer')
 local nnevaluator = require('nnevaluator')
@@ -290,6 +291,7 @@ function synthqa.createModel(params, training)
     -- params.questionLength
     -- params.wordEmbedDim
     -- params.lstmDim
+    -- params.aggregatorDim
     -- params.itemDim
     -- params.decoderSteps
     -- params.vocabSize
@@ -328,25 +330,31 @@ function synthqa.createModel(params, training)
         nn.GradientStopper()(colorIdReshape))
     local itemsJoined = nn.JoinTable(2, 2)(
         {catEmbed, colorEmbed, coordReshape})
+    itemsJoined.data.module.name = 'itemsJoined'
     local itemsJoinedReshape = mynn.BatchReshape(9, itemRawDim)(itemsJoined)
     itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
 
     -- Word Embeddings
     local wordIds = nn.Narrow(2, 55, params.questionLength)(input)
+    local itemOfInterest = nn.Select(2, 57)(input)
     local wordEmbed = nn.LookupTable(
         #synthqa.idict, params.wordEmbedDim)(
         nn.GradientStopper()(wordIds))
     local wordEmbedSeq = nn.SplitTable(2)(wordEmbed)
-    local constantState = mynn.Constant(params.lstmDim * 2, 0)(input)
 
     -- Encoder LSTM
+    local constantEncoderState = mynn.Constant(params.lstmDim * 2, 0)(input)
     local encoderCore = lstm.createUnit(
         params.wordEmbedDim, params.lstmDim)
     local encoder = nn.RNN(
-        encoderCore, params.questionLength)({wordEmbedSeq, constantState})
+        encoderCore, params.questionLength)(
+        {wordEmbedSeq, constantEncoderState})
     local encoderStateSel = nn.SelectTable(
         params.questionLength)(encoder)
     encoder.data.module.name = 'encoder'
+    local constantBinaryOutputState = mynn.Constant(1)(input)
+    local decoderStateInit = nn.JoinTable(2)(
+        {encoderStateSel, constantBinaryOutputState})
 
     -- Decoder dummy input
     local decoderInputConst = mynn.Constant(
@@ -354,79 +362,75 @@ function synthqa.createModel(params, training)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
 
     -- Decoder LSTM (1st layer)
-    local decoderCore = lstm.createAttentionUnit(
+    local decoderCore = lstm.createAttentionUnitWithBinaryOutput(
         1, params.lstmDim, 9, itemRawDim, 0.1, 
         params.attentionMechanism, training)
     local decoder = nn.RNN(
         decoderCore, params.decoderSteps)(
-        {decoderInputSplit, constantState, itemsJoinedReshape})
+        {decoderInputSplit, decoderStateInit, itemsJoinedReshape})
     decoder.data.module.name = 'decoder'
 
-    local createBinaryInput = function()
-        local input = nn.Identity()()
-        local initRange = 0.1
-        local inputHidden = nn.Narrow(2, params.lstmDim + 1, params.lstmDim)(input)
-        local aggregate = nn.Linear(params.lstmDim, 1)(inputHidden)
-        local sigmoid = nn.Sigmoid()(aggregate)
-        local stochastic = nn.ReinforceBernoulli()(sigmoid)
-        local unit = nn.gModule({input}, {stochastic})
-        aggregate.data.module.weight:uniform(-initRange / 2, initRange / 2)
-        aggregate.data.module.bias:uniform(-initRange / 2, initRange / 2)
-        unit.moduleMap = {
-            input = stochastic.data.module
-        }
-        unit.reinforceUnit = stochastic.data.module
-        return unit
+    local decoderBinaryOutputs = {}
+    for t = 1, params.decoderSteps do
+        table.insert(decoderBinaryOutputs, mynn.BatchReshape(1)(
+            nn.Select(2, params.lstmDim * 2 + 1, 1)(
+                nn.SelectTable(t)(decoder))))
     end
-    local binaryInput = nn.RNN(createBinaryInput(), params.decoderSteps, false)(decoder)
-    binaryInput.data.module.name = 'binary'
+    local decoderBinaryOutputTable = nn.Identity()(decoderBinaryOutputs)
 
     -- Decoder LSTM (2nd stochastic binary input layer)
+    local constantAggState = mynn.Constant(params.aggregatorDim * 2, 0)(input)
     local aggregator = nn.RNN(
-        lstm.createUnit(1, params.lstmDim), params.decoderSteps)(
-        {binaryInput, constantState})
+        lstm.createUnit(1, params.aggregatorDim), params.decoderSteps)(
+        {decoderBinaryOutputTable, constantAggState})
+
+    -- load pretrained weights
     if params.aggregatorWeights then
         local agg_w, agg_dl_dw = aggregator.data.module.core:getParameters()
         agg_w:copy(params.aggregatorWeights)
     end
     aggregator.data.module.name = 'aggregator'
 
-    -- Classify answer
-    local decoderOutputSel = nn.SelectTable(
+    -- -- Classify answer
+    local aggregatorOutputSel = nn.SelectTable(
         params.decoderSteps)(aggregator)
-    local decoderOutputState = nn.Narrow(
-        2, params.lstmDim + 1, params.lstmDim)(decoderOutputSel)
+
+    -- binary output
+    local aggregatorOutputState = nn.Narrow(
+        2, params.aggregatorDim + 1, params.aggregatorDim)(aggregatorOutputSel)
 
     local outputMap, final
     if params.objective == 'regression' then
-        outputMap = nn.Linear(params.lstmDim, 1)(decoderOutputState)
+        outputMap = nn.Linear(params.aggregatorDim, 1)(aggregatorOutputState)
+
+        -- load pretrained weights
+        if params.outputMapWeights then
+            local ow, odldw = outputMap.data.module:getParameters()
+            ow:copy(params.outputMapWeights)
+        end
+
         final = outputMap
     elseif params.objective == 'classification' then
-        outputMap = nn.Linear(
-            params.lstmDim, params.vocabSize)(decoderOutputState)
-        local answerlog = nn.LogSoftMax()(outputMap)
-        final = answerlog
+        logger:logFatal('no classification')
     else
         logger:logFatal(string.format(
             'unknown training objective %s', params.objective))
     end
 
-    if params.outputMapWeights then
-        local ow, odldw = outputMap.data.module:getParameters()
-        -- print(ow:size())
-        -- print(params.outputMapWeights:size())
-        ow:copy(params.outputMapWeights)
-    end
-
     -- Build entire model
     -- Need MSECriterion for regression reward.
-    local all, expectedReward
+    local all, expectedAttentionReward, expectedCountingReward
     if params.attentionMechanism == 'soft' then
         -- all = nn.LazyGModule({input}, {answer})
         all = nn.LazyGModule({input}, {final})
     elseif params.attentionMechanism == 'hard' then
-        expectedReward = mynn.Weights(1)(input)
-        local reinforceOut = nn.Identity()({final, expectedReward})
+        expectedAttentionReward = mynn.Weights(params.decoderSteps)(input)
+        expectedCountingReward = mynn.Weights(params.decoderSteps)(input)
+        expectedAttentionReward.data.module.name = 'expectedAttentionReward'
+        expectedCountingReward.data.module.name = 'expectedCountingReward'
+        local reinforceOut = nn.Identity()(
+            {final, itemOfInterest, catIdReshape, expectedAttentionReward, 
+            expectedCountingReward})
         all = nn.LazyGModule({input}, {final, reinforceOut})
     else
         logger:logFatal(string.format(
@@ -438,18 +442,17 @@ function synthqa.createModel(params, training)
     all:addModule('wordEmbed', wordEmbed)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
-    all:addModule('binaryInput', binaryInput)
     all:addModule('aggregator', aggregator)
-    all:addModule('answer', outputMap)
+    all:addModule('outputMap', outputMap)
     if params.attentionMechanism == 'hard' then
-        all:addModule('expectedReward', expectedReward)
+        all:addModule('expectedAttentionReward', expectedAttentionReward)
+        all:addModule('expectedCountingReward', expectedCountingReward)
     end
     all:setup()
 
     -- Expand LSTMs
     encoder.data.module:expand()
     decoder.data.module:expand()
-    binaryInput.data.module:expand()
     aggregator.data.module:expand()
 
     if params.attentionMechanism == 'soft' then
@@ -464,22 +467,12 @@ function synthqa.createModel(params, training)
         -- all.criterion = nn.CrossEntropyCriterion()
     elseif params.attentionMechanism == 'hard' then
         -- Setup criterions and rewards
-        local reinforceUnits = {}
-        for i = 1, params.decoderSteps do
-            table.insert(
-                reinforceUnits, decoder.data.module.replicas[i].reinforceUnit)
-            table.insert(
-                reinforceUnits, 
-                binaryInput.data.module.replicas[i].reinforceUnit)
-        end
-        local rc = ReinforceContainer(reinforceUnits)
-
         if params.objective == 'regression' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.ModuleCriterion(
                 nn.MSECriterion(), nil, nn.Convert()))
               :add(nn.ModuleCriterion(
-                mynn.VRNegMSEReward(rc), nil, nn.Convert()))
+                mynn.VRAttentionCountReward(all), nil, nn.Convert()))
         elseif params.objective == 'classification' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.ModuleCriterion(

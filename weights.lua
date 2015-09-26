@@ -1,6 +1,7 @@
 local torch = require('torch')
 local nn = require('nn')
 local mynn = require('mynn')
+local logger = require('logger')()
 
 -- A module that outputs constant weights
 local Weights, parent = torch.class('mynn.Weights', 'nn.Module')
@@ -19,12 +20,17 @@ function Weights:updateOutput(input)
     local outputShape = torch.LongStorage(self.shape:size() + 1)
     local reshapeShape = torch.LongStorage(self.shape:size() + 1)
     -- Batch is the same
+    -- print('weight')
+    -- logger:logInfo(input:size())
     outputShape[1] = input:size(1)
     reshapeShape[1] = 1
     for i = 1, self.shape:size() do
         outputShape[i + 1] = self.shape[i]
         reshapeShape[i + 1] = self.shape[i]
     end
+    -- if self.name == 'expectedReward' then
+    --     logger:logFatal(outputShape)
+    -- end
     -- print(outputShape)
     return self.weight:reshape(reshapeShape):expand(outputShape)
 end

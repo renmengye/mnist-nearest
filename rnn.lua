@@ -27,7 +27,11 @@ function RNN:updateOutput(input)
     local output = {}
     local inputSeq, state0, global
     -- if self.name then
-    --     print(self.name)
+        -- print(self.name)
+        -- print(input)
+        -- print(#input)
+        -- print(input[1])
+        -- print(#input[1])
     -- end
     if self.interconnect then
         inputSeq, state0, global = unpack(input)
