@@ -443,5 +443,7 @@ function lstm.createAttentionUnitDebug(
 end
 
 
+function lstm.createMemoryUnit()
+end
 ----------------------------------------------------------------------
 return lstm

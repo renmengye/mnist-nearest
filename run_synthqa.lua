@@ -165,8 +165,8 @@ local loopConfig = {
     analyzers = {classAccuracyAnalyzer},
 }
 
-local optimizer = optim.sgd
--- local optimizer = optim.adam2
+-- local optimizer = optim.sgd
+local optimizer = optim.adam2
 local trainer = NNTrainer(trainModel, loopConfig, optimizer, optimConfig)
 local trainEval = NNEvaluator('train', evalModel)
 

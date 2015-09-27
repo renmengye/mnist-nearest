@@ -1,12 +1,3 @@
--------------------------------------------------------------------------------
---[[ VRNegMSEReward ]]--
--- Variance reduced negative mean-squared error reinforcement criterion.
--- input : {class prediction, baseline reward}
--- Reward is negative distance.
--- reward = scale*(Reward - baseline) where baseline is 2nd input element
--- Note : for RNNs with R = 1 for last step in sequence, encapsulate it
--- in nn.ModuleCriterion(VRNegMSEReward, nn.SelectTable(-1))
--------------------------------------------------------------------------------
 local mynn = require('mynn')
 local logger = require('logger')()
 local VRAttentionCountReward, parent = torch.class('mynn.VRAttentionCountReward', 'nn.Criterion')
@@ -70,29 +61,35 @@ function VRAttentionCountReward:updateOutput(input, target)
                 self.attentionReward[n][t] = self.attentionReward[n][t] - 1
             end
 
-            -- Counting reward
-            -- Reward for counting for the first time
-            if not counted[idx] and 
-                attItemId == GTItemId[n] and 
-                binaryOutput[t][n][1] == 1 then
-                self.countingReward[n][t] = self.countingReward[n][t] + 1
-                counted[idx] = true
-                if verb then io.write(' + 2') end
-            else
-                -- Penalty for counting wrong
-                if attItemId ~= GTItemId[n] and 
-                    binaryOutput[t][n][1] == 1 then
-                    self.countingReward[n][t] = self.countingReward[n][t] - 0.5
-                    if verb then io.write(' - 0.5') end
-                end
+            -- if not counted[idx] and 
+            --     attItemId == GTItemId[n] and 
+            --     binaryOutput[t][n][1] == 1 then
+            --     self.countingReward[n][t] = self.countingReward[n][t] + 1
+            --     counted[idx] = true
+            --     if verb then io.write(' + 2') end
+            -- else
+            --     -- Penalty for counting wrong
+            --     if attItemId ~= GTItemId[n] and 
+            --         binaryOutput[t][n][1] == 1 then
+            --         self.countingReward[n][t] = self.countingReward[n][t] - 0.5
+            --         if verb then io.write(' - 0.5') end
+            --     end
 
-                -- Penalty for double counting
-                if counted[idx] and 
-                    attItemId == GTItemId[n] and 
-                    binaryOutput[t][n][1] == 1 then
-                    self.countingReward[n][t] = self.countingReward[n][t] - 0.5
-                    if verb then io.write(' - 0.5') end
-                end
+            --     -- Penalty for double counting
+            --     if counted[idx] and 
+            --         attItemId == GTItemId[n] and 
+            --         binaryOutput[t][n][1] == 1 then
+            --         self.countingReward[n][t] = self.countingReward[n][t] - 0.5
+            --         if verb then io.write(' - 0.5') end
+            --     end
+            -- end
+
+            -- Counting reward
+            if not counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+                self.countingReward[n][t] = self.countingReward[n][t] + 0.5
+                counted[idx] = true
+            elseif counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+                self.countingReward[n][t] = self.countingReward[n][t] - 0.5
             end
             if verb then io.write('\n') end
         end
@@ -103,7 +100,6 @@ function VRAttentionCountReward:updateOutput(input, target)
     else
         self.output = - self.attentionReward:sum() - self.countingReward:sum()
     end
-    -- print(self.output)
 
     return self.output
 end
