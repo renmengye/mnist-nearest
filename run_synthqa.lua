@@ -16,6 +16,7 @@ cmd:text('Options:')
 cmd:option('-train', false, 'whether to train a new network')
 cmd:option('-path', 'synthqa.w.h5', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
+cmd:option('-load', false, 'whether to load the trained network')
 cmd:option('-num_ex', 10000, 'number of generated examples')
 cmd:option('-attention', 'hard', 'soft or hard attention')
 cmd:option('-objective', 'regression', 'classification or regression')
@@ -65,6 +66,9 @@ local params = {
 }
 
 local trainModel = synthqa.createModel(params, true)
+if opt.load then
+    nnserializer.load(trainModel, opt.path)
+end
 
 -- for k,v in pairs(trainModel.moduleMap) do
 --     logger:logInfo(k)
