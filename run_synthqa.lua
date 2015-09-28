@@ -69,7 +69,6 @@ local trainModel = synthqa.createModel(params, true)
 if opt.load then
     nnserializer.load(trainModel, opt.path)
 end
-
 -- for k,v in pairs(trainModel.moduleMap) do
 --     logger:logInfo(k)
 --     logger:logInfo(trainModel.sliceLayer(trainModel.w, k):size())
