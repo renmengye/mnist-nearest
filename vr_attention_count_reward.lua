@@ -85,12 +85,22 @@ function VRAttentionCountReward:updateOutput(input, target)
             -- end
 
             -- Counting reward
-            if not counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+            if not counted[idx] and binaryOutput[t][n][1] == 1 then
                 self.countingReward[n][t] = self.countingReward[n][t] + 0.5
                 counted[idx] = true
-            elseif counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+            elseif counted[idx] and binaryOutput[t][n][1] == 0 then
+                self.countingReward[n][t] = self.countingReward[n][t] + 0.5
+            elseif counted[idx] and binaryOutput[t][n][1] == 1 then
+                self.countingReward[n][t] = self.countingReward[n][t] - 0.5
+            elseif not counted[idx] and binaryOutput[t][n][1] == 0 then
                 self.countingReward[n][t] = self.countingReward[n][t] - 0.5
             end
+            -- if not counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+            --     self.countingReward[n][t] = self.countingReward[n][t] + 0.5
+            --     counted[idx] = true
+            -- elseif counted[idx] and binaryOutput[t][n][1] == 1 and attItemId == GTItemId[n] then
+            --     self.countingReward[n][t] = self.countingReward[n][t] - 0.5
+            -- end
             if verb then io.write('\n') end
         end
     end

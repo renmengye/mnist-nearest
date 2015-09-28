@@ -143,6 +143,65 @@ function synthqa.genHowManyObject(N)
     return dataset
 end
 
+function synthqa.getCoord(grid, noise)
+    if noise == nil then
+        noise = true
+    end
+    -- Randomly sample with gaussian noise
+    local yCenter = torch.floor((grid - 1) / 3)  / 3 + (1 / 6)
+    local xCenter = (grid - 1) % 3 / 3 + (1 / 6)
+    if noise then
+        logger:logInfo(
+            string.format(
+                'Grid %d, X center %f Y center %f', 
+                grid, xCenter, yCenter), 2)
+        return torch.Tensor({torch.normal(xCenter, synthqa.X_STD),
+                torch.normal(yCenter, synthqa.Y_STD),
+                torch.normal(
+                    synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_STD),
+                torch.normal(
+                    synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_STD)})
+    else
+        return torch.Tensor(
+            {xCenter, yCenter, 
+            synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_AVG})
+    end
+end
+-------------------------------------------------------------------------------
+function synthqa.encodeItems2(allItems)
+    -- Category ID (1)
+    -- Color ID (1)
+    -- X, Y coordinates (2)
+    -- local colorIdict = imageqa.invertDict(COLOR)
+    -- local objTypeIdict = imageqa.invertDict(OBJECT)
+    local numDim = 2 + 2 + 4
+    local result = torch.Tensor(#allItems, synthqa.NUM_GRID * numDim):zero()
+    for i, items in ipairs(allItems) do
+        if #items > 0 then
+            local itemShuffle = torch.randperm(#items)
+            -- Shuffle items
+            for j = 1, #items do
+                local item = items[itemShuffle[j]]
+                local itemCount = 0
+                for key, value in pairs(item) do
+                    if key == 'category' then
+                        result[{i, (j - 1) * numDim + 1}] = (value - 1) / 2
+                        result[{i, (j - 1) * numDim + 2}] = (value - 1) % 2
+                    elseif key == 'color' then
+                        result[{i, (j - 1) * numDim + 3}] = (value - 1) / 2
+                        result[{i, (j - 1) * numDim + 4}] = (value - 1) % 2
+                    elseif key == 'grid' then
+                        result[
+                        {i, {(j - 1) * numDim + 5, (j - 1) * numDim + 8}}] = 
+                        synthqa.getCoord(value)
+                    end
+                end
+            end
+        end
+    end
+    return result
+end
+
 -------------------------------------------------------------------------------
 function synthqa.encodeItems(allItems)
     -- Category ID (1)
