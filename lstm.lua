@@ -284,7 +284,8 @@ function lstm.createAttentionUnit(
     mm1.data.module.name = 'MM1'
     local attentionUnnorm = nn.Reshape(numItems)(mm1)
     attentionUnnorm.data.module.name = 'attentionUnnorm'
-    local attentionNorm = nn.SoftMax()(attentionUnnorm)
+    -- local attentionNorm = nn.SoftMax()(attentionUnnorm)
+    local attentionNorm = nn.Sigmoid()(attentionUnnorm)
 
     local transitionOut = mynn.Constant({numItems}, 0.5)(input)
     local ones = mynn.Constant({numItems}, 1.0)(input)
@@ -308,11 +309,13 @@ function lstm.createAttentionUnit(
     end
 
     local attentionAccum = nn.CAddTable()({attention, stayPenalty})
-
     local attentionReshape = nn.Reshape(1, numItems)(attention)
     local mm2 = nn.MM()({attentionReshape, items})
     mm2.data.module.name = 'MM2'
     local attendedItems = nn.Reshape(itemDim)(mm2)
+
+    local attentionNormSel = mynn.BatchReshape(1)(
+        nn.Sum(2)(nn.CMulTable()({attentionNorm, attention})))
 
     local joinState1 = nn.JoinTable(2)({input, attendedItems, cellPrev, hiddenPrev})
     joinState1.data.module.name = 'attJoinState1'
@@ -334,7 +337,9 @@ function lstm.createAttentionUnit(
     })
     local hiddenNext = nn.CMulTable()({outGate, nn.Tanh()(cellNext)})
     local stateNext = nn.JoinTable(2)(
-        {cellNext, hiddenNext, attendedItems, attentionNorm, attentionAccum})
+        {cellNext, hiddenNext, 
+        attendedItems, attentionNorm, 
+        attentionAccum, attentionNormSel})
     stateNext.data.module.name = 'attStateNext'
     local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
     -- coreModule.reinforceUnit = attention.data.module

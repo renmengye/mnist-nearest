@@ -12,7 +12,7 @@ local vr_attention_reward = require('vr_attention_reward')
 local counting_criterion = require('counting_criterion')
 local double_counting_criterion = require('double_counting_criterion')
 local attention_criterion = require('attention_criterion')
-local relatedness_criterion = require('relatedness_criterion')
+-- local relatedness_criterion = require('relatedness_criterion')
 
 -------------------------------------------------------------------------------
 function synthqa.createModel2(params, training)
@@ -32,7 +32,6 @@ function synthqa.createModel2(params, training)
     -- params.objective
     -- params.aggregatorWeights
     -- params.outputMapWeights
-    
     if training == nil then
         training = false
     end
@@ -61,11 +60,13 @@ function synthqa.createModel2(params, training)
     local itemsJoined = nn.JoinTable(2, 2)(
         {catEmbed, colorEmbed, coordReshape})
     itemsJoined.data.module.name = 'itemsJoined'
-    local itemsJoinedReshape = mynn.BatchReshape(params.numItems, params.itemDim)(itemsJoined)
+    local itemsJoinedReshape = mynn.BatchReshape(
+        params.numItems, params.itemDim)(itemsJoined)
     itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
 
     -- Word Embeddings
-    local wordIds = nn.Narrow(2, params.numItems * 6 + 1, params.questionLength)(input)
+    local wordIds = nn.Narrow(
+        2, params.numItems * 6 + 1, params.questionLength)(input)
     local itemOfInterest = nn.Select(2, params.numItems * 6 + 3)(input)
     local wordEmbed = nn.LookupTable(
         #synthqa.idict, params.wordEmbedDim)(
@@ -82,7 +83,8 @@ function synthqa.createModel2(params, training)
     local encoderStateSel = nn.SelectTable(
         params.questionLength)(encoder)
     encoder.data.module.name = 'encoder'
-    local constantAttendedState = mynn.Constant(params.itemDim + params.numItems * 2)(input)
+    local constantAttendedState = mynn.Constant(
+        params.itemDim + params.numItems * 2)(input)
 
     -- Decoder LSTM (Attend to the object of interest)
     local decoderStateInit = nn.JoinTable(2)(
@@ -100,8 +102,9 @@ function synthqa.createModel2(params, training)
         {decoderInputSplit, decoderStateInit, itemsJoinedReshape})
     decoder.data.module.name = 'decoder'
 
-    local attentionValues = {}
     local attentionOutputs = {}
+    local attentionValues = {}
+    local attentionSel = {}
     for t = 1, params.decoderSteps do
         table.insert(attentionOutputs, nn.Narrow(
             2, params.lstmDim * 2 + 1, params.itemDim)(
@@ -109,13 +112,18 @@ function synthqa.createModel2(params, training)
         table.insert(attentionValues, nn.Narrow(
             2, params.lstmDim * 2 + params.itemDim + 1, params.numItems)(
             nn.SelectTable(t)(decoder)))
+        table.insert(attentionSel, nn.Narrow(
+            2, 
+            params.lstmDim * 2 + params.itemDim + params.numItems * 2 + 1, 1)(
+            nn.SelectTable(t)(decoder)))
     end
-    local attentionOutputTable = nn.Identity()(attentionOutputs)
-    -- local attentionValueTable = nn.Identity()(attentionValues)
     local attentionValueJoin = nn.JoinTable(2)(attentionValues)
     attentionValueJoin.data.module.name = 'attentionValueJoin'
     local attentionValueReshape = mynn.BatchReshape(
         params.decoderSteps, params.numItems)(attentionValueJoin)
+    local attentionOutputTable = nn.Identity()(attentionOutputs)
+    local attentionSelJoin = mynn.BatchReshape(params.decoderSteps, 1)(
+        nn.JoinTable(2)(attentionSel))
 
     -- Recaller LSTM (Tell whether you have seen the object before)
     local recallerStateInit = encoderStateSel
@@ -136,60 +144,16 @@ function synthqa.createModel2(params, training)
     local recallerBinary = nn.Sigmoid()(recallerOutputMap)
     local recallerBinaryReshape = mynn.BatchReshape(params.decoderSteps, 1)(
         recallerBinary)
-    local recallerBinarySplit = nn.SplitTable(2)(recallerBinaryReshape)
-    -- local recallerBinarySplit = nn.SplitTable(2)(mynn.GradientStopper()(recallerBinaryReshape))
-    -- local recallerGradStopper = mynn.GradientStopper()(recallerBinarySplit)
 
-    -- Relatedness
-    local relatednessStateInit = encoderStateSel
-    local relatedness = nn.RNN(
-        lstm.createUnit(params.itemDim, params.lstmDim), params.decoderSteps)(
-        {attentionOutputTable, relatednessStateInit})
-    relatedness.data.module.name = 'relatedness'
-
-    local relatednessOutputs = {}
-    for t = 1, params.decoderSteps do
-        table.insert(relatednessOutputs, nn.Narrow(
-            2, params.lstmDim + 1, params.lstmDim)(
-            nn.SelectTable(t)(relatedness)))
-    end
-    local relatednessJoin = mynn.BatchReshape(params.lstmDim)(
-        nn.JoinTable(2)(relatednessOutputs))
-    local relatednessOutputMap = nn.Linear(params.lstmDim, 1)(relatednessJoin)
-    local relatednessBinary = nn.Sigmoid()(relatednessOutputMap)
-    local relatednessBinaryReshape = mynn.BatchReshape(params.decoderSteps, 1)(
-        relatednessBinary)
-    local relatednessBinarySplit = nn.SplitTable(2)(relatednessBinaryReshape)
-    -- local relatednessInput = {}
-    -- for t = 1, params.decoderSteps do
-    --     table.insert(relatednessInput, 
-    --         nn.JoinTable(2)({attentionOutputs[t], attentionValues[t], encoderStateSel}))
-    -- end
-    -- local relatednessInputJoin = nn.JoinTable(2)(relatednessInput)
-    -- local relatednessInputReshape = mynn.BatchReshape(
-    --     2 * params.lstmDim + params.numItems + params.itemDim)(relatednessInputJoin)
-    -- local relatednessLT = nn.Linear(
-    --     2 * params.lstmDim + params.numItems + params.itemDim, params.itemDim)(relatednessInputReshape)
-    -- local relatednessTanh = nn.Tanh()(relatednessLT)
-    -- local relatednessLT2 = nn.Linear(params.itemDim, 1)(relatednessTanh)
-    -- local relatedness = mynn.BatchReshape(
-    --         params.decoderSteps, 1)(
-    --         nn.Sigmoid()(relatednessLT2))
-    -- local relatednessSplit = nn.SplitTable(2)(relatedness)
-
-    local aggregatorInputTable = {}
-    for t = 1, params.decoderSteps do
-        table.insert(aggregatorInputTable, nn.CMulTable()(
-            {nn.SelectTable(t)(relatednessBinarySplit), 
-            nn.SelectTable(t)(recallerBinarySplit)}))
-    end
-    local aggregatorInput = nn.Identity()(aggregatorInputTable)
+    local recallerAttMul = nn.CMulTable()(
+        {recallerBinaryReshape, attentionSelJoin})
+    local recallerBinarySplit = nn.SplitTable(2)(recallerAttMul)
 
     -- Aggregator (adds 1's and 0's)
     local constantAggState = mynn.Constant(params.aggregatorDim * 2, 0)(input)
     local aggregator = nn.RNN(
         lstm.createUnit(1, params.aggregatorDim), params.decoderSteps)(
-        {aggregatorInput, constantAggState})
+        {recallerBinarySplit, constantAggState})
     
     -- Load pretrained weights
     if params.aggregatorWeights then
@@ -199,7 +163,6 @@ function synthqa.createModel2(params, training)
     aggregator.data.module.name = 'aggregator'
 
     -- Classify answer
-
     local aggregatorOutputs = {}
     for t = 1, params.decoderSteps do
         table.insert(aggregatorOutputs, nn.Narrow(
@@ -210,8 +173,10 @@ function synthqa.createModel2(params, training)
     aggregatorOutputJoin.data.module.name = 'aggregatorOutputJoin'
     local aggregatorOutputReshape = mynn.BatchReshape(
         params.aggregatorDim)(aggregatorOutputJoin)
-    local outputMap = nn.Linear(params.aggregatorDim, 1)(aggregatorOutputReshape)
-    local outputMapReshape = mynn.BatchReshape(params.decoderSteps, 1)(outputMap)
+    local outputMap = nn.Linear(params.aggregatorDim, 1)(
+        aggregatorOutputReshape)
+    local outputMapReshape = mynn.BatchReshape(
+        params.decoderSteps, 1)(outputMap)
 
     -- Load pretrained weights
     if params.outputMapWeights then
@@ -222,9 +187,10 @@ function synthqa.createModel2(params, training)
 
     local attentionOut = nn.Identity()(
         {attentionValueReshape, itemOfInterest, catIdReshape})
-    local relatednessOut = nn.Identity()(
-        {relatednessBinaryReshape, attentionValueReshape, itemOfInterest, catIdReshape})
-    all = nn.LazyGModule({input}, {final, outputMapReshape, attentionOut, recallerBinaryReshape, relatednessOut})
+
+    all = nn.LazyGModule({input}, 
+        {final, outputMapReshape, attentionOut, 
+        recallerBinaryReshape})
 
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
@@ -234,23 +200,16 @@ function synthqa.createModel2(params, training)
     all:addModule('recaller', recaller)
     all:addModule('recallerOutputMap', recallerOutputMap)
     all:addModule('recallerBinaryReshape', recallerBinaryReshape)
-    all:addModule('relatedness', relatedness)
-    all:addModule('relatednessOutputMap', relatednessOutputMap)
-    all:addModule('relatednessBinaryReshape', relatednessBinaryReshape)
+    all:addModule('attentionSelJoin', attentionSelJoin)
     all:addModule('aggregator', aggregator)
     all:addModule('outputMap', outputMap)
     all:addModule('final', final)
-    -- all:addModule('expectedAttentionReward', expectedAttentionReward)
-    
-    -- catEmbed.data.module.weight:copy(
-    --     torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
     all:setup()
 
     -- Expand LSTMs
     encoder.data.module:expand()
     decoder.data.module:expand()
     recaller.data.module:expand()
-    relatedness.data.module:expand()
     aggregator.data.module:expand()
 
     if params.attentionMechanism == 'soft' then
@@ -268,15 +227,10 @@ function synthqa.createModel2(params, training)
         if params.objective == 'regression' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.MSECriterion(), 0.1)
-              :add(mynn.CountingCriterion(recallerBinaryReshape.data.module), 0.1)
+              :add(mynn.CountingCriterion(
+                recallerBinaryReshape.data.module), 0.1)
               :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
               :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
-              :add(mynn.RelatednessCriterion(), 1.0)
-            -- all.criterion = nn.ParallelCriterion(true)
-            --     :add(nn.MSECriterion(), 0.1)
-            --     :add(mynn.CountingCriterion(recallerBinaryReshape.data.module), 0.1)
-            --     :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
-            --     :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
         else
             logger:logFatal(string.format(
                 'unknown training objective %s', params.objective))
@@ -361,18 +315,6 @@ if opt.load then
 end
 local evalModel = synthqa.createModel2(params, true)
 
--- local learningRates = {
---     catEmbed = 0.01, 
---     colorEmbed = 0.01,
---     wordEmbed = 0.01,
---     encoder = 0.01,
---     decoder = 0.01,
---     recaller = 0.01,
---     recallerOutputMap = 0.01,
---     aggregator = 0.01,
---     outputMap = 0.01
--- }
-
 local gradClipTable = {
     catEmbed = 0.1,
     colorEmbed = 0.1,
@@ -381,16 +323,12 @@ local gradClipTable = {
     decoder = 0.1,
     recaller = 0.1,
     recallerOutputMap = 0.1,
-    relatedness = 0.1,
-    relatednessOutputMap = 0.1,
     aggregator = 0.1,
     outputMap = 0.1
 }
 
 local optimConfig = {
     learningRate = 0.001,
-    -- learningRates = utils.fillVector(
-        -- torch.Tensor(trainModel.w:size()), trainModel.sliceLayer, learningRates),
     momentum = 0.9,
     weightDecay = 0.000005,
     gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
@@ -425,7 +363,7 @@ local visualizeAttention = function()
     evalModel:forward(testSubset)
     local decoder = evalModel.moduleMap['decoder']
     local recallerBinaryReshape = evalModel.moduleMap['recallerBinaryReshape']
-    local relatednessBinaryReshape = evalModel.moduleMap['relatednessBinaryReshape']
+    local attentionSelReshape = evalModel.moduleMap['attentionSelJoin']
     local aggregator = evalModel.moduleMap['aggregator']
     local offset = torch.floor(N / 2)
 
@@ -453,8 +391,8 @@ local visualizeAttention = function()
             end
             local aggregatorInputSoft = recallerBinaryReshape.output[{{}, t, {}}]
             io.write(string.format(' (%.2f)', aggregatorInputSoft[n][1]))
-            local relatednessScore = relatednessBinaryReshape.output[{{}, t, {}}]
-            io.write(string.format(' (%.2f)', relatednessScore[n][1]))
+            local attentionScore = attentionSelReshape.output[{{}, t, {}}]
+            io.write(string.format(' (%.2f)', attentionScore[n][1]))
             io.write('\n')
         end
     end

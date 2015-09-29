@@ -33,23 +33,32 @@ function AttentionCriterion:updateOutput(input, target)
     self.labels = torch.Tensor(
         self.inputReshape:size(1), #attentionIdx, itemId:size(2)):zero()
     for n = 1, self.inputReshape:size(1) do
-        local count = {}
-        for i = 1, 4 do
-            count[i] = 0
-        end
+        -- local count = {}
+        -- for i = 1, 4 do
+        --     count[i] = 0
+        -- end
+        -- for i = 1, itemId:size(2) do
+        --     count[itemId[n][i]] = count[itemId[n][i]] + 1
+        -- end
+        -- if count[GTItemId[n]] > 0 then
+        --     for i = 1, itemId:size(2) do
+        --         if itemId[n][i] == GTItemId[n] then
+        --             self.labels[{n, {}, i}] = torch.Tensor(
+        --                 #attentionIdx):fill(1 / count[GTItemId[n]])
+        --         end
+        --     end
+        -- else
+        --     self.labels[{n, {}, {}}] = torch.Tensor(
+        --         #attentionIdx, itemId:size(2)):fill(1 / itemId:size(2))
+        -- end
         for i = 1, itemId:size(2) do
-            count[itemId[n][i]] = count[itemId[n][i]] + 1
-        end
-        if count[GTItemId[n]] > 0 then
-            for i = 1, itemId:size(2) do
-                if itemId[n][i] == GTItemId[n] then
-                    self.labels[{n, {}, i}] = torch.Tensor(
-                        #attentionIdx):fill(1 / count[GTItemId[n]])
-                end
+            if itemId[n][i] == GTItemId[n] then
+                self.labels[{n, {}, i}] = torch.Tensor(
+                    #attentionIdx):fill(1.0)
+            else
+                self.labels[{n, {}, i}] = torch.Tensor(
+                    #attentionIdx):fill(0.01)
             end
-        else
-            self.labels[{n, {}, {}}] = torch.Tensor(
-                #attentionIdx, itemId:size(2)):fill(1 / itemId:size(2))
         end
     end
     self.output = self.criterion:forward(self.inputReshape, self.labels)
