@@ -12,6 +12,7 @@ function Constant:__init(shape, value)
     else
         self.value = value
     end
+    print(self.value)
     if type(shape) == 'number' then
         self.shape = torch.LongStorage({shape})
     else
@@ -31,6 +32,9 @@ function Constant:updateOutput(input)
     end
     -- print('Constant')
     -- print(outputShape)
+    if self.name == 'ones' then
+        print(torch.Tensor(outputShape):fill(self.value))
+    end
     return torch.Tensor(outputShape):fill(self.value)
 end
 

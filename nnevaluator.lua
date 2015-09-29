@@ -21,8 +21,13 @@ function NNEvaluator.getClassConfusionAnalyzer(decision, classes, labelStart)
         end
 
         for n = 1, N do
-            confusion[reindex(labels[n])][reindex(output[n])] = 
-                confusion[reindex(labels[n])][reindex(output[n])] + 1
+            if reindex(output[n])  <= #classes and 
+                reindex(labels[n]) <= #classes and
+                reindex(output[n]) >= 1 and
+                reindex(labels[n]) >= 1 then
+                confusion[reindex(labels[n])][reindex(output[n])] = 
+                    confusion[reindex(labels[n])][reindex(output[n])] + 1
+            end
         end
 
         -- Percentage of class i being classified into class j

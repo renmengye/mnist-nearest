@@ -5,6 +5,7 @@ local weights = require('weights')
 local batch_reshape = require('batch_reshape')
 local logger = require('logger')()
 local dpnn = require('dpnn')
+local one_hot = require('one_hot')
 local lstm = {}
 
 ----------------------------------------------------------------------
@@ -262,6 +263,7 @@ function lstm.createAttentionUnit(
     local items = nn.Identity()()
     local cellPrev = nn.Narrow(2, 1, hiddenDim)(statePrev)
     local hiddenPrev = nn.Narrow(2, hiddenDim + 1, hiddenDim)(statePrev)
+    local attentionPrev = nn.Narrow(2, hiddenDim * 2 + itemDim + numItems + 1, numItems)(statePrev)
 
     local itemsReshape = mynn.BatchReshape(itemDim)(items)
     itemsReshape.data.module.name = 'itemsReshape'
@@ -280,20 +282,32 @@ function lstm.createAttentionUnit(
     attentionWeight.data.module.name = 'attentionWeight'
     local mm1 = nn.MM()({query, attentionWeight})
     mm1.data.module.name = 'MM1'
-    local attention = nn.Reshape(numItems)(mm1)
-    attention.data.module.name = 'attention'
-    local attentionNorm = nn.SoftMax()(attention)
+    local attentionUnnorm = nn.Reshape(numItems)(mm1)
+    attentionUnnorm.data.module.name = 'attentionUnnorm'
+    local attentionNorm = nn.SoftMax()(attentionUnnorm)
+
+    local transitionOut = mynn.Constant({numItems}, 0.5)(input)
+    local ones = mynn.Constant({numItems}, 1.0)(input)
+    local stayPenalty = nn.CMulTable()({transitionOut, attentionPrev})
+    local stayPenaltyCoeff = nn.CSubTable()({ones, stayPenalty})
+    local attentionNormPen = nn.CMulTable()({attentionNorm, stayPenaltyCoeff})
+    local attentionNormPenSum = nn.Replicate(numItems, 2)(nn.Sum(2)(attentionNormPen))
+    local attentionNormPenNorm = nn.CDivTable()({attentionNormPen, attentionNormPenSum})
     
     -- Build attention using either 'hard' or 'soft' attention
     local attention
     if attentionMechanism == 'hard' then
-        attention = nn.ReinforceCategorical(training)(attentionNorm)
+        -- attention = nn.ReinforceCategorical(training)(attentionNormPenNorm)
+        attentionIdx = nn.ArgMax(2)(attentionNormPenNorm)
+        attention = mynn.OneHot(numItems)(attentionIdx)
     elseif attentionMechanism == 'soft' then
-        attention = attentionNorm
+        attention = attentionNormPen
     else
         logger:logFatal(string.format(
             'unknown attention mechanism: %s', attentionMechanism))
     end
+
+    local attentionAccum = nn.CAddTable()({attention, stayPenalty})
 
     local attentionReshape = nn.Reshape(1, numItems)(attention)
     local mm2 = nn.MM()({attentionReshape, items})
@@ -319,12 +333,13 @@ function lstm.createAttentionUnit(
         nn.CMulTable()({inGate, inTransform})
     })
     local hiddenNext = nn.CMulTable()({outGate, nn.Tanh()(cellNext)})
-    local stateNext = nn.JoinTable(2)({cellNext, hiddenNext, attendedItems, attentionNorm})
+    local stateNext = nn.JoinTable(2)(
+        {cellNext, hiddenNext, attendedItems, attentionNorm, attentionAccum})
     stateNext.data.module.name = 'attStateNext'
     local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
-    coreModule.reinforceUnit = attention.data.module
+    -- coreModule.reinforceUnit = attention.data.module
     coreModule.moduleMap = {
-        softAttention = attentionNorm.data.module,
+        softAttention = attentionNormPenNorm.data.module,
         attention = attention.data.module
     }
     
@@ -339,6 +354,7 @@ function lstm.createAttentionUnit(
     forgetGateLin.data.module.bias:fill(1)
     outGateLin.data.module.weight:uniform(-initRange / 2, initRange / 2)
     outGateLin.data.module.bias:fill(1)
+    
     return coreModule
 end
 
