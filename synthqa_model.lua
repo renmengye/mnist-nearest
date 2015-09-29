@@ -145,8 +145,10 @@ function synthqa.createModel2(params, training)
     local recallerBinaryReshape = mynn.BatchReshape(params.decoderSteps, 1)(
         recallerBinary)
 
-    local recallerAttMul = mynn.GradientStopper()(nn.CMulTable()(
-        {recallerBinaryReshape, attentionSelJoin}))
+    -- local recallerAttMul = mynn.GradientStopper()(nn.CMulTable()(
+    --     {recallerBinaryReshape, attentionSelJoin}))
+    local recallerAttMul = nn.CMulTable()(
+            {recallerBinaryReshape, attentionSelJoin})
     local recallerBinarySplit = nn.SplitTable(2)(recallerAttMul)
 
     -- Aggregator (adds 1's and 0's)
