@@ -228,7 +228,7 @@ function synthqa.createModel2(params, training)
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.MSECriterion(), 0.1)
               :add(mynn.CountingCriterion(
-                recallerBinaryReshape.data.module), 0.1)
+                recallerAttMul.data.module), 1.0)
               :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
               :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
         else
