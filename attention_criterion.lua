@@ -5,7 +5,7 @@ local AttentionCriterion, parent = torch.class('mynn.AttentionCriterion', 'nn.Cr
 function AttentionCriterion:__init(decoder, criterion)
     parent.__init(self)
     self.decoder = decoder
-    self.criterion = criterion or nn.MSECriterion() -- baseline criterion
+    self.criterion = criterion or nn.BCECriterion() -- baseline criterion
     self.gradInput = {torch.Tensor()}
 end
 
@@ -57,10 +57,12 @@ function AttentionCriterion:updateOutput(input, target)
                     #attentionIdx):fill(1.0)
             else
                 self.labels[{n, {}, i}] = torch.Tensor(
-                    #attentionIdx):fill(0.01)
+                    #attentionIdx):fill(0.0)
             end
         end
     end
+    -- print(self.inputReshape[1])
+    -- print(self.labels[1])
     self.output = self.criterion:forward(self.inputReshape, self.labels)
 
     return self.output

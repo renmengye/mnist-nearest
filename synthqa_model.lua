@@ -145,8 +145,8 @@ function synthqa.createModel2(params, training)
     local recallerBinaryReshape = mynn.BatchReshape(params.decoderSteps, 1)(
         recallerBinary)
 
-    local recallerAttMul = nn.CMulTable()(
-        {recallerBinaryReshape, attentionSelJoin})
+    local recallerAttMul = mynn.GradientStopper()(nn.CMulTable()(
+        {recallerBinaryReshape, attentionSelJoin}))
     local recallerBinarySplit = nn.SplitTable(2)(recallerAttMul)
 
     -- Aggregator (adds 1's and 0's)
@@ -221,14 +221,13 @@ function synthqa.createModel2(params, training)
             logger:logFatal(string.format(
                 'unknown training objective %s', params.objective))
         end
-        -- all.criterion = nn.CrossEntropyCriterion()
     elseif params.attentionMechanism == 'hard' then
         -- Setup criterions and rewards
         if params.objective == 'regression' then
             all.criterion = nn.ParallelCriterion(true)
               :add(nn.MSECriterion(), 0.1)
               :add(mynn.CountingCriterion(
-                recallerAttMul.data.module), 1.0)
+                recallerAttMul.data.module), 0.1)
               :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
               :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
         else
