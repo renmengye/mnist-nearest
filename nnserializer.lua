@@ -9,7 +9,9 @@ function nnserializer.load(model, filename)
         local w = model.w
         local dl_dw = model.dl_dw
         for key, value in pairs(parameterMap) do
-            w[{{value[1], value[2]}}]:copy(f:read(key):all())
+            if value[1] <= value[2] then
+                w[{{value[1], value[2]}}]:copy(f:read(key):all())
+            end
         end
     else
         local w, dl_dw = model:getParameters()
@@ -29,7 +31,9 @@ function nnserializer.save(model, filename)
         f:write('__all__', w)
     else
         for key, value in pairs(parameterMap) do
-            f:write(key, w[{{value[1], value[2]}}])
+            if value[1] <= value[2] then
+                f:write(key, w[{{value[1], value[2]}}])
+            end
         end
     end
     f:close()

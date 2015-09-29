@@ -288,11 +288,6 @@ function lstm.createAttentionUnit(
     local attention
     if attentionMechanism == 'hard' then
         attention = nn.ReinforceCategorical(training)(attentionNorm)
-        -- if training then
-        --     attention = nn.ReinforceCategorical(training)(attentionNorm)
-        -- else
-        --     attention = nn.ArgMax(attentionNorm)
-        -- end
     elseif attentionMechanism == 'soft' then
         attention = attentionNorm
     else
@@ -305,10 +300,10 @@ function lstm.createAttentionUnit(
     mm2.data.module.name = 'MM2'
     local attendedItems = nn.Reshape(itemDim)(mm2)
 
-    local joinState1 = nn.JoinTable(2, 2)({input, attendedItems, statePrev})
-    joinState1.name = 'attJoinState1'
-    local joinState2 = nn.JoinTable(2, 2)({input, attendedItems, hiddenPrev})
-    joinState2.name = 'attJoinState2'
+    local joinState1 = nn.JoinTable(2)({input, attendedItems, cellPrev, hiddenPrev})
+    joinState1.data.module.name = 'attJoinState1'
+    local joinState2 = nn.JoinTable(2)({input, attendedItems, hiddenPrev})
+    joinState2.data.module.name = 'attJoinState2'
     local state1 = hiddenDim * 2 + inputDim + itemDim
     local state2 = hiddenDim + inputDim + itemDim
     local inGateLin = nn.Linear(state1, hiddenDim)(joinState1)
@@ -324,8 +319,8 @@ function lstm.createAttentionUnit(
         nn.CMulTable()({inGate, inTransform})
     })
     local hiddenNext = nn.CMulTable()({outGate, nn.Tanh()(cellNext)})
-    local stateNext = nn.JoinTable(2, 2)({cellNext, hiddenNext})
-    stateNext.name = 'attStateNext'
+    local stateNext = nn.JoinTable(2)({cellNext, hiddenNext, attendedItems, attentionNorm})
+    stateNext.data.module.name = 'attStateNext'
     local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
     coreModule.reinforceUnit = attention.data.module
     coreModule.moduleMap = {
@@ -696,12 +691,27 @@ function lstm.createMemoryUnitWithBinaryOutput4(numMemory, memoryDim, hasQueryWr
     -- end
     local memoryPrev = mynn.BatchReshape(
         numMemory, memoryDim)(memoryPrevReshape)
-    local inputReshape = mynn.BatchReshape(memoryDim, 1)(input)
     local inputExpand = nn.Replicate(numMemory, 2)(input)
-    local queryReadResult = mynn.BatchReshape(numMemory)(nn.MM()(
-        {memoryPrev, inputReshape}))
+    local inputExpandReshape = mynn.BatchReshape(inputDim)(inputExpand)
+    local memoryPrevReshape2 = mynn.BatchReshape(memoryDim)(memoryPrev)
+    local inputExpandLTRead = nn.Linear(inputDim, memoryDim)(inputExpandReshape)
+    local memoryPrevLTRead = nn.Linear(memoryDim, memoryDim)(memoryPrevReshape2)
 
-    local writeHead = nn.Linear(inputDim, numMemory)(input)
+    local queryRead = nn.Tanh()(
+        nn.CAddTable()({inputExpandLTRead, memoryPrevLTRead}))
+    local queryReadReshape = mynn.BatchReshape(numMemory, memoryDim)(queryRead)
+    local attWeightRead = mynn.Weights(memoryDim)(input)
+    attWeightRead.data.module.name = 'attWeight'
+    local attWeightReadReshape = mynn.BatchReshape(memoryDim, 1)(attWeightRead)
+    local mmRead = nn.MM()({queryReadReshape, attWeightReadReshape})
+    mmRead.data.module.name = 'mmRead'
+    local queryReadResult = mynn.BatchReshape(numMemory)(mmRead)
+
+    -- local join = nn.JoinTable(2)({input, queryReadResult})
+    -- local writeHead = nn.Linear(inputDim + numMemory, numMemory)(join)
+    local inputLT = nn.Tanh()(nn.Linear(inputDim, numMemory)(input))
+    local writeHead = nn.CSubTable()({inputLT, queryReadResult})
+    -- local writeHead= 
     local writeHeadNorm = nn.SoftMax()(writeHead)
     local writeHeadNormExp = nn.Replicate(memoryDim, 3)(writeHeadNorm)
     local addMemory = nn.CMulTable()({inputExpand, writeHeadNormExp})
@@ -727,7 +737,8 @@ function lstm.createMemoryUnitWithBinaryOutput4(numMemory, memoryDim, hasQueryWr
         writeHeadNorm = writeHeadNorm.data.module
     }
     
-    writeHead.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    -- writeHead.data.module.weight:uniform(-initRange / 2, initRange / 2)
+    -- inputLT.data.module.weight:uniform(-initRange / 2, initRange / 2)
     return coreModule
 end
 ----------------------------------------------------------------------

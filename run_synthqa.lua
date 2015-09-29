@@ -69,40 +69,7 @@ local trainModel = synthqa.createModel(params, true)
 if opt.load then
     nnserializer.load(trainModel, opt.path)
 end
--- for k,v in pairs(trainModel.moduleMap) do
---     logger:logInfo(k)
---     logger:logInfo(trainModel.sliceLayer(trainModel.w, k):size())
--- end
-
--- print(trainModel.w:size())
--- print(params.outputMapWeights)
--- print(trainModel.w[{{3570, 3585}}])
--- print(unpack(trainModel.parameterMap['answer']))
--- print(table.tostring(trainModel.parameterMap))
--- print(trainModel.sliceLayer(trainModel.w, 'answer'):eq(params.outputMapWeights))
--- print(trainModel.sliceLayer(trainModel.w, 'aggregator'):eq(params.aggregatorWeights))
-
 local evalModel = synthqa.createModel(params, true)
-
--- local learningRateDecay = 0.001
--- local learningRates = {
---     catEmbed = 0.0001, 
---     colorEmbed = 0.0001,
---     wordEmbed = 0.0001,
---     encoder = 0.0001,
---     decoder = 0.0001,
---     aggregator = 0.00,
---     outputMap = 0.00
--- }
--- local learningRates = {
---     catEmbed = 0.01, 
---     colorEmbed = 0.01,
---     wordEmbed = 0.01,
---     encoder = 0.01,
---     decoder = 0.01,
---     aggregator = 0.00,
---     outputMap = 0.00
--- }
 
 local learningRates = {
     catEmbed = 0.001, 
@@ -124,23 +91,11 @@ local gradClipTable = {
     outputMap = 1.0
 }
 
--- local gradClipTable = {
---     catEmbed = 0.1,
---     colorEmbed = 0.1,
---     wordEmbed = 0.1,
---     encoder = 0.1,
---     decoder = 0.1,
---     aggregator = 0.1,
---     outputMap = 0.1
--- }
-
 if params.attentionMechanism == 'hard' then
-    -- learningRates['expectedReward'] = 0.01
     learningRates['expectedAttentionReward'] = 1.0
     learningRates['expectedCountingReward'] = 1.0
     gradClipTable['expectedAttentionReward'] = 1.0
     gradClipTable['expectedCountingReward'] = 1.0
-    -- gradClipTable['expectedReward'] = 0.1
 end
 
 local optimConfig = {
@@ -151,24 +106,13 @@ local optimConfig = {
     gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
 }
 
--- -- For Adam
--- local optimConfig = {
---     learningRate = 0.001,
---     learningRates = utils.fillVector(
---         torch.Tensor(trainModel.w:size()), trainModel.sliceLayer, learningRates),
---     gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
--- }
-
--- logger:logFatal(optimConfig.learningRates)
-
 local loopConfig = {
     numEpoch = 10000,
-    batchSize = 500,
+    batchSize = 100,
     progressBar = true,
     analyzers = {classAccuracyAnalyzer},
 }
 
--- local optimizer = optim.sgd
 local optimizer = optim.adam2
 local trainer = NNTrainer(trainModel, loopConfig, optimizer, optimConfig)
 local trainEval = NNEvaluator('train', evalModel)

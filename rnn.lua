@@ -26,13 +26,14 @@ end
 function RNN:updateOutput(input)
     local output = {}
     local inputSeq, state0, global
-    -- if self.name then
+    if self.name then
         -- print(self.name)
         -- print(input)
         -- print(#input)
         -- print(input[1])
+        -- print(input[1][1])
         -- print(#input[1])
-    -- end
+    end
     if self.interconnect then
         inputSeq, state0, global = unpack(input)
     else
@@ -54,6 +55,7 @@ function RNN:updateOutput(input)
         end
         -- print(output[t])
     end
+    -- print('haha', output[1]:size())
     return output
 end
 

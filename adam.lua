@@ -19,8 +19,10 @@ function optim.adam2(opfunc, x, config, state)
     -- (0) get/update state
     local config = config or {}
     local state = state or config
+    local wd = config.weightDecay or 0
     local lr = config.learningRate or 0.001
     local lrs = config.learningRates
+    local wds = config.weightDecays
 
     local beta1 = config.beta1 or 0.9
     local beta2 = config.beta2 or 0.999
@@ -28,6 +30,15 @@ function optim.adam2(opfunc, x, config, state)
 
     -- (1) evaluate f(x) and df/dx
     local fx, dfdx = opfunc(x)
+    if wd ~= 0 then
+      dfdx:add(wd, x)
+    elseif wds then
+        if not state.decayParameters then
+            state.decayParameters = torch.Tensor():typeAs(x):resizeAs(dfdx)
+        end
+        state.decayParameters:copy(wds):cmul(x)
+        dfdx:add(state.decayParameters)
+    end
 
     -- Initialization
     state.t = state.t or 0

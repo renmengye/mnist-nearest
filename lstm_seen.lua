@@ -351,7 +351,7 @@ local loopConfig = {
 }
 
 local optimConfig = {
-    learningRate = 0.1,
+    learningRate = 0.01,
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
