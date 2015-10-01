@@ -1,5 +1,4 @@
 local synthqa = require('synthqa')
-
 local logger = require('logger')()
 local utils = require('utils')
 local nntrainer = require('nntrainer')
@@ -12,15 +11,15 @@ local vr_attention_reward = require('vr_attention_reward')
 local counting_criterion = require('counting_criterion')
 local double_counting_criterion = require('double_counting_criterion')
 local attention_criterion = require('attention_criterion')
--- local relatedness_criterion = require('relatedness_criterion')
 
 -------------------------------------------------------------------------------
-function synthqa.createModel2(params, training)
+function createModel(params, training)
     -- params.objectEmbedDim
     -- params.colorEmbedDim
     -- params.questionLength
     -- params.wordEmbedDim
-    -- params.lstmDim
+    -- params.encoderDim
+    -- params.recallerDim
     -- params.aggregatorDim
     -- params.itemDim
     -- params.numItems
@@ -74,9 +73,9 @@ function synthqa.createModel2(params, training)
     local wordEmbedSeq = nn.SplitTable(2)(wordEmbed)
 
     -- Encoder LSTM
-    local constantEncoderState = mynn.Constant(params.lstmDim * 2, 0)(input)
+    local constantEncoderState = mynn.Constant(params.encoderDim * 2, 0)(input)
     local encoderCore = lstm.createUnit(
-        params.wordEmbedDim, params.lstmDim)
+        params.wordEmbedDim, params.encoderDim)
     local encoder = nn.RNN(
         encoderCore, params.questionLength)(
         {wordEmbedSeq, constantEncoderState})
@@ -94,27 +93,31 @@ function synthqa.createModel2(params, training)
         {params.decoderSteps, 1}, 0)(input)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
 
+    -- Decoder share states with encoder
     local decoderCore = lstm.createAttentionUnit(
-        1, params.lstmDim, params.numItems, params.itemDim, 0.1, 
+        1, params.encoderDim, params.numItems, params.itemDim, 0.1, 
         params.attentionMechanism, training)
     local decoder = nn.RNN(
         decoderCore, params.decoderSteps)(
         {decoderInputSplit, decoderStateInit, itemsJoinedReshape})
     decoder.data.module.name = 'decoder'
 
+    -- Gather decoder outputs
     local attentionOutputs = {}
     local attentionValues = {}
     local attentionSel = {}
     for t = 1, params.decoderSteps do
         table.insert(attentionOutputs, nn.Narrow(
-            2, params.lstmDim * 2 + 1, params.itemDim)(
+            2, params.encoderDim * 2 + 1, params.itemDim)(
             nn.SelectTable(t)(decoder)))
         table.insert(attentionValues, nn.Narrow(
-            2, params.lstmDim * 2 + params.itemDim + 1, params.numItems)(
+            2, params.encoderDim * 2 + params.itemDim + 1, params.numItems)(
             nn.SelectTable(t)(decoder)))
         table.insert(attentionSel, nn.Narrow(
             2, 
-            params.lstmDim * 2 + params.itemDim + params.numItems * 2 + 1, 1)(
+            params.encoderDim * 2 + 
+            params.itemDim + 
+            params.numItems * 2 + 1, 1)(
             nn.SelectTable(t)(decoder)))
     end
     local attentionValueJoin = nn.JoinTable(2)(attentionValues)
@@ -126,27 +129,28 @@ function synthqa.createModel2(params, training)
         nn.JoinTable(2)(attentionSel))
 
     -- Recaller LSTM (Tell whether you have seen the object before)
-    local recallerStateInit = encoderStateSel
+    local recallerStateInit = mynn.Constant(params.recallerDim * 2, 0)(input)
     local recaller = nn.RNN(
-        lstm.createUnit(params.itemDim, params.lstmDim), params.decoderSteps)(
+        lstm.createUnit(
+            params.itemDim, params.recallerDim), params.decoderSteps)(
         {attentionOutputTable, recallerStateInit})
     recaller.data.module.name = 'recaller'
 
+    -- Recaller binary output
     local recallerOutputs = {}
     for t = 1, params.decoderSteps do
         table.insert(recallerOutputs, nn.Narrow(
-            2, params.lstmDim + 1, params.lstmDim)(
+            2, params.recallerDim + 1, params.recallerDim)(
             nn.SelectTable(t)(recaller)))
     end
-    local recallerJoin = mynn.BatchReshape(params.lstmDim)(
+    local recallerJoin = mynn.BatchReshape(params.recallerDim)(
         nn.JoinTable(2)(recallerOutputs))
-    local recallerOutputMap = nn.Linear(params.lstmDim, 1)(recallerJoin)
+    local recallerOutputMap = nn.Linear(params.recallerDim, 1)(recallerJoin)
     local recallerBinary = nn.Sigmoid()(recallerOutputMap)
     local recallerBinaryReshape = mynn.BatchReshape(params.decoderSteps, 1)(
         recallerBinary)
 
-    -- local recallerAttMul = mynn.GradientStopper()(nn.CMulTable()(
-    --     {recallerBinaryReshape, attentionSelJoin}))
+    -- Multiply with attention
     local recallerAttMul = nn.CMulTable()(
             {recallerBinaryReshape, attentionSelJoin})
     local recallerBinarySplit = nn.SplitTable(2)(recallerAttMul)
@@ -214,38 +218,16 @@ function synthqa.createModel2(params, training)
     recaller.data.module:expand()
     aggregator.data.module:expand()
 
-    if params.attentionMechanism == 'soft' then
-        if params.objective == 'regression' then
-            all.criterion = nn.MSECriterion()
-        elseif params.objective == 'classification' then
-            all.criterion = nn.ClassNLLCriterion()
-        else
-            logger:logFatal(string.format(
-                'unknown training objective %s', params.objective))
-        end
-    elseif params.attentionMechanism == 'hard' then
-        -- Setup criterions and rewards
-        if params.objective == 'regression' then
-            all.criterion = nn.ParallelCriterion(true)
-              :add(nn.MSECriterion(), 0.1)
-              :add(mynn.CountingCriterion(
-                recallerAttMul.data.module), 0.1)
-              :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
-              :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
-        else
-            logger:logFatal(string.format(
-                'unknown training objective %s', params.objective))
-        end
-    end
-
-    if params.objective == 'regression' then
-        all.decision = function(pred)
-            local num = torch.round(pred)
-            return num
-        end        
-    else
-        logger:logFatal(string.format(
-            'unknown training objective %s', params.objective))
+    -- Criterion and decision function
+    all.criterion = nn.ParallelCriterion(true)
+      :add(nn.MSECriterion(), 0.1)
+      :add(mynn.CountingCriterion(
+        recallerAttMul.data.module), 0.1)
+      :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
+      :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
+    all.decision = function(pred)
+        local num = torch.round(pred)
+        return num
     end
 
     return all
@@ -275,28 +257,21 @@ logger:logInfo('----------------------------')
 
 -------------------------------------------------------------------------------
 local N = opt.num_ex
--- local rawData1 = synthqa.genHowManyObject(N / 2)
--- local rawData2 = synthqa.genHowManyObject(N / 2)
--- synthqa.checkOverlap(rawData1, rawData2)
-
 local rawData = synthqa.genHowManyObject(N)
 local data, labels = synthqa.prep(rawData, opt.objective)
-
 data = {
     trainData = data[{{1, torch.floor(N / 2)}}],
     trainLabels = labels[{{1, torch.floor(N / 2)}}],
     testData = data[{{torch.floor(N / 2) + 1, N}}],
     testLabels = labels[{{torch.floor(N / 2) + 1, N}}]
 }
-
-local aggregatorTrained = hdf5.open('lstm_sum.w.h5')
-
 local params = {
     objectEmbedDim = 2,
     colorEmbedDim = 2,
     questionLength = 3,
     wordEmbedDim = 10,
-    lstmDim = 10,
+    encoderDim = 10,
+    recallerDim = 10,
     aggregatorDim = 10,
     itemDim = 8,
     numItems = 9,
@@ -305,12 +280,11 @@ local params = {
     numObject = #synthqa.OBJECT + 1,
     numColor = #synthqa.COLOR + 1,
     attentionMechanism = opt.attention,
-    objective = opt.objective,
-    -- aggregatorWeights = aggregatorTrained:read('lstm'):all(),
-    -- outputMapWeights = aggregatorTrained:read('linear'):all()
+    objective = opt.objective
 }
-
 local trainModel = synthqa.createModel2(params, true)
+trainModel.sliceLayer(trainModel.w, 'catEmbed'):copy(
+    torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
 if opt.load then
     nnserializer.load(trainModel, opt.path)
 end
@@ -328,18 +302,21 @@ local gradClipTable = {
     outputMap = 0.1
 }
 
-local optimConfig = {
-    learningRate = 0.001,
-    momentum = 0.9,
-    weightDecay = 0.000005,
-    gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
-}
 
 local loopConfig = {
     numEpoch = 10000,
     batchSize = 64,
     progressBar = true,
     analyzers = {classAccuracyAnalyzer},
+}
+
+local optimConfig = {
+    learningRate = 0.1,
+    -- Decay to 0.1 after 100 epochs
+    learningRateDecay = 0.1 / (opt.num_ex / 2 / loopConfig.batchSize),
+    momentum = 0.9,
+    weightDecay = 0.000005,
+    gradientClip = utils.gradientClip(gradClipTable, trainModel.sliceLayer)
 }
 
 local optimizer = optim.adam2
@@ -399,18 +376,7 @@ local visualizeAttention = function()
     end
 end
 
--- nnserializer.load(evalModel, 'debugnan.w.h5')
--- print(evalModel.sliceLayer(evalModel.w, 'encoder'))
--- print(evalModel.sliceLayer(evalModel.w, 'wordEmbed'))
--- print(evalModel.sliceLayer(evalModel.w, 'catEmbed'))
--- print(evalModel.sliceLayer(evalModel.w, 'colorEmbed'))
 visualizeAttention()
--- for t = 1, 12 do
---     print(evalModel.moduleMap['decoder'].replicas[t].output)
--- end
-
--- logger:logFatal('error')
-
 local testEval = NNEvaluator('test', evalModel, 
     {
         NNEvaluator.getClassAccuracyAnalyzer(evalModel.decision, answerDict, labelStart),

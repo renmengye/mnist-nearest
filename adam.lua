@@ -22,7 +22,10 @@ function optim.adam2(opfunc, x, config, state)
     local wd = config.weightDecay or 0
     local lr = config.learningRate or 0.001
     local lrs = config.learningRates
+    local lrd = config.learningRateDecay or 0
     local wds = config.weightDecays
+    state.evalCounter = state.evalCounter or 0
+    local nevals = state.evalCounter
 
     local beta1 = config.beta1 or 0.9
     local beta2 = config.beta2 or 0.999
@@ -61,12 +64,14 @@ function optim.adam2(opfunc, x, config, state)
     local biasCorrection2 = 1 - beta2^state.t
 
     local stepSize
+    local clr = lr / (1 + nevals * lrd)
     if lrs then
-        stepSize = lrs * math.sqrt(biasCorrection2) / biasCorrection1
+        stepSize = clr * lrs * math.sqrt(biasCorrection2) / biasCorrection1
         x:addcdiv(-1, state.m:cmul(stepSize), state.denom)
     else
-        stepSize = lr * math.sqrt(biasCorrection2) / biasCorrection1
+        stepSize = clr * math.sqrt(biasCorrection2) / biasCorrection1
         x:addcdiv(-stepSize, state.m, state.denom)
     end
+    state.evalCounter = state.evalCounter + 1
     return x, {fx}
 end

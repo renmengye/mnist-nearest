@@ -31,7 +31,7 @@ function NNEvaluator.getClassConfusionAnalyzer(decision, classes, labelStart)
         end
 
         -- Percentage of class i being classified into class j
-        logger:logInfo('--- Confusion matrix ---')
+        logger:logInfo('--- confusion matrix ---')
         io.write(string.format('%5s ', ''))
         for i = 1, #classes do
             if labelDist[i] > 0 then
@@ -63,9 +63,11 @@ function NNEvaluator.getClassAccuracyAnalyzer(decision, classes, labelStart)
     local labelEnd = labelStart + #classes - 1
     return function (pred, labels)
         local N = labels:numel()
-        local labelDist = torch.histc(labels:double(), #classes, labelStart, labelEnd)
+        local labelDist = torch.histc(
+            labels:double(), #classes, labelStart, labelEnd)
         local output = decision(pred)
-        local outputDist = torch.histc(output:double(), #classes, labelStart, labelEnd)
+        local outputDist = torch.histc(
+            output:double(), #classes, labelStart, labelEnd)
         local correct = output:eq(labels):reshape(N)
         local correctCls = {}
         local labelReindex = {}
@@ -150,4 +152,5 @@ function NNEvaluator:evaluate(data, labels, batchSize)
     end
 end
 
+-------------------------------------------------------------------------------
 return NNEvaluator
