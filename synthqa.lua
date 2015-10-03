@@ -2,24 +2,7 @@ local torch = require('torch')
 local logger = require('logger')()
 local table_utils = require('table_utils')
 local imageqa = require('imageqa')
-local lstm = require('lstm')
-local nn = require('nn')
-local nngraph = require('nngraph')
-local rnn = require('rnn')
-local constant = require('constant')
-local gradient_stopper = require('gradient_stopper')
-local lazy_sequential = require('lazy_sequential')
-local lazy_gmodule = require('lazy_gmodule')
-local batch_reshape = require('batch_reshape')
-local vr_neg_mse_reward = require('vr_neg_mse_reward')
-local vr_round_eq_reward = require('vr_round_eq_reward')
-local vr_attention_count_reward = require('vr_attention_count_reward')
 local utils = require('utils')
-local nntrainer = require('nntrainer')
-local nnevaluator = require('nnevaluator')
-local nnserializer = require('nnserializer')
-local reinforce_container = require('reinforce_container')
-local optim_pkg = require('optim')
 local synthqa = {}
 
 -------------------------------------------------------------------------------
@@ -101,8 +84,6 @@ function combine(tables)
     end
     return combined
 end
-
-local imageSize = {300, 300}
 
 -------------------------------------------------------------------------------
 function synthqa.genHowManyObject(N)

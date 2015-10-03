@@ -46,6 +46,9 @@ function Weights:accGradParameters(input, gradOutput, scale)
         self.gradWeight:zero()
     end
     self.gradWeight:add(gradOutput:sum(1))
+    -- if self.name == 'expectedReward' then
+    --     print(self.gradWeight, self.weight)
+    -- end
 end
 
 function Weights:parameters()

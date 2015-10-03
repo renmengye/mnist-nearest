@@ -66,7 +66,8 @@ function optim.adam2(opfunc, x, config, state)
     local stepSize
     local clr = lr / (1 + nevals * lrd)
     if lrs then
-        stepSize = clr * lrs * math.sqrt(biasCorrection2) / biasCorrection1
+        stepSize = clr * math.sqrt(biasCorrection2) / biasCorrection1
+        stepSize = lrs:mul(stepSize)
         x:addcdiv(-1, state.m:cmul(stepSize), state.denom)
     else
         stepSize = clr * math.sqrt(biasCorrection2) / biasCorrection1

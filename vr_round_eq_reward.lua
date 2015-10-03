@@ -10,9 +10,9 @@
 local mynn = require('mynn')
 local VRRoundEqReward, parent = torch.class('mynn.VRRoundEqReward', 'nn.Criterion')
 
-function VRRoundEqReward:__init(module, scale, criterion)
+function VRRoundEqReward:__init(reinforceUnits, scale, criterion)
    parent.__init(self)
-   self.module = module -- so it can call module:reinforce(reward)
+   self.reinforceUnits = reinforceUnits
    self.scale = scale or 1 -- scale of reward
    self.criterion = criterion or nn.MSECriterion() -- baseline criterion
    self.sizeAverage = true
@@ -23,7 +23,7 @@ end
 function VRRoundEqReward:updateOutput(input, target)
    assert(torch.type(input) == 'table')
    local input = self:toBatch(input[1], 1)
-   self.reward =  torch.round(input):eq(target):float()
+   self.reward = torch.round(input):eq(target):float() * self.scale
    self.output = -self.reward:sum()
    if self.sizeAverage then
       self.output = self.output / input:size(1)
@@ -43,8 +43,16 @@ function VRRoundEqReward:updateGradInput(inputTable, target)
    if self.sizeAverage then
       self.vrReward:div(input:size(1))
    end
+
+   -- print(torch.cat(self.reward, baseline, 2))
    -- broadcast reward to modules
-   self.module:reinforce(self.vrReward)
+   if type(self.reinforceUnits) == 'table' then
+      for i, unit in ipairs(self.reinforceUnits) do
+         unit:reinforce(self.vrReward:reshape(self.vrReward:numel()))
+      end
+   else
+      self.reinforceUnits:reinforce(self.vrReward)
+   end
    
    -- zero gradInput (this criterion has no gradInput for class pred)
    self.gradInput[1]:resizeAs(input):zero()

@@ -1,8 +1,15 @@
 local synthqa = require('synthqa')
+local nn = require('nn')
+local nngraph = require('nngraph')
+local rnn = require('rnn')
 local lstm = require('lstm')
+local constant = require('constant')
+local batch_reshape = require('batch_reshape')
+local gradient_stopper = require('gradient_stopper')
 local counting_criterion = require('counting_criterion')
 local double_counting_criterion = require('double_counting_criterion')
 local attention_criterion = require('attention_criterion')
+local lazy_gmodule = require('lazy_gmodule')
 local synthqa_attspv_model = {}
 
 -------------------------------------------------------------------------------
@@ -388,7 +395,7 @@ function synthqa_attspv_model.create(params, training)
 
     -- Criterion and decision function
     all.criterion = nn.ParallelCriterion(true)
-      :add(nn.MSECriterion(), 0.1)
+      :add(nn.MSECriterion(), 0.0)
       :add(mynn.CountingCriterion(recallerAttMul.data.module), 0.1)
       :add(mynn.AttentionCriterion(decoder.data.module), 1.0)
       :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
@@ -400,5 +407,29 @@ function synthqa_attspv_model.create(params, training)
     return all
 end
 
+-------------------------------------------------------------------------------
+-- synthqa_attspv_model.learningRates = {
+--     catEmbed = 0.1,
+--     colorEmbed = 0.1,
+--     wordEmbed = 0.1,
+--     encoder = 0.1,
+--     decoder = 0.1,
+--     recaller = 0.1,
+--     recallerOutputMap = 0.1,
+--     aggregator = 0.1,
+--     outputMap = 0.1,
+-- }
+
+synthqa_attspv_model.gradClipTable = {
+    catEmbed = 0.1,
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    recaller = 0.1,
+    recallerOutputMap = 0.1,
+    aggregator = 0.1,
+    outputMap = 0.1
+}
 -------------------------------------------------------------------------------
 return synthqa_attspv_model

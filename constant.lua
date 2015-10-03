@@ -12,7 +12,6 @@ function Constant:__init(shape, value)
     else
         self.value = value
     end
-    print(self.value)
     if type(shape) == 'number' then
         self.shape = torch.LongStorage({shape})
     else

@@ -1,8 +1,18 @@
 local synthqa = require('synthqa')
+local nn = require('nn')
+local nngraph = require('nngraph')
+local rnn = require('rnn')
 local lstm = require('lstm')
+local constant = require('constant')
+local batch_reshape = require('batch_reshape')
+local gradient_stopper = require('gradient_stopper')
 local counting_criterion = require('counting_criterion')
 local double_counting_criterion = require('double_counting_criterion')
 local attention_criterion = require('attention_criterion')
+local lazy_gmodule = require('lazy_gmodule')
+local vr_neg_mse_reward = require('vr_neg_mse_reward')
+local vr_round_eq_reward = require('vr_round_eq_reward')
+local vr_attention_count_reward = require('vr_attention_count_reward')
 local synthqa_attunspv_model = {}
 
 -------------------------------------------------------------------------------
@@ -125,7 +135,7 @@ function synthqa_attunspv_model.createAttentionUnit(
          attentionNormSel})
     stateNext.data.module.name = 'attStateNext'
     local coreModule = nn.gModule({input, statePrev, items}, {stateNext})
-    -- coreModule.reinforceUnit = attention.data.module
+    coreModule.reinforceUnit = attention.data.module
     coreModule.moduleMap = {
         softAttention = attentionNormPenNorm.data.module,
         attention = attention.data.module
@@ -227,7 +237,7 @@ function synthqa_attunspv_model.create(params, training)
     local decoderInputSplit = nn.SplitTable(2)(decoderInputConst)
 
     -- Decoder share states with encoder
-    local decoderCore = synthqa_attspv_model.createAttentionUnit(
+    local decoderCore = synthqa_attunspv_model.createAttentionUnit(
         1, params.encoderDim, params.numItems, params.itemDim, 0.1, 
         params.attentionMechanism, training)
     local decoder = nn.RNN(
@@ -358,10 +368,18 @@ function synthqa_attunspv_model.create(params, training)
          itemOfInterest, 
          catIdReshape,
          penAttentionValueReshape})
+    local expectedReward = mynn.Weights(1)(input)
+    expectedReward.data.module.name = 'expectedReward'
+    local reinforceOut = nn.Identity()(
+        {final,
+         expectedReward})
 
     all = nn.LazyGModule({input}, 
-        {final, outputMapReshape, attentionOut, 
-        recallerBinaryReshape})
+        {final, 
+        outputMapReshape, 
+        attentionOut, 
+        recallerBinaryReshape,
+        reinforceOut})
 
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
@@ -378,6 +396,7 @@ function synthqa_attunspv_model.create(params, training)
     all:addModule('aggregator', aggregator)
     all:addModule('outputMap', outputMap)
     all:addModule('final', final)
+    all:addModule('expectedReward', expectedReward)
     all:setup()
 
     -- Expand LSTMs
@@ -386,12 +405,21 @@ function synthqa_attunspv_model.create(params, training)
     recaller.data.module:expand()
     aggregator.data.module:expand()
 
+    -- Gather reinforce units
+    local reinforceUnits = {}
+    for t = 1, params.decoderSteps do
+        table.insert(reinforceUnits, 
+            decoder.data.module.replicas[t].reinforceUnit)
+    end
+
     -- Criterion and decision function
     all.criterion = nn.ParallelCriterion(true)
       :add(nn.MSECriterion(), 0.1)
       :add(mynn.CountingCriterion(recallerAttMul.data.module), 0.1)
       :add(mynn.AttentionCriterion(decoder.data.module), 0.0)
       :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
+      :add(mynn.VRNegMSEReward(reinforceUnits, 1.0), 1.0)
+      -- :add(mynn.VRRoundEqReward(reinforceUnits, 10.0), 1.0)
     all.decision = function(pred)
         local num = torch.round(pred)
         return num
@@ -401,4 +429,30 @@ function synthqa_attunspv_model.create(params, training)
 end
 
 -------------------------------------------------------------------------------
-return synthqa_attspv_model
+
+-- synthqa_attunspv_model.learningRates = {
+--     catEmbed = 0.1,
+--     colorEmbed = 0.1,
+--     wordEmbed = 0.1,
+--     encoder = 0.1,
+--     decoder = 0.1,
+--     recaller = 0.1,
+--     recallerOutputMap = 0.1,
+--     aggregator = 0.1,
+--     outputMap = 0.1,
+--     expectedReward = 1.0
+-- }
+
+synthqa_attunspv_model.gradClipTable = {
+    catEmbed = 0.1,
+    colorEmbed = 0.1,
+    wordEmbed = 0.1,
+    encoder = 0.1,
+    decoder = 0.1,
+    recaller = 0.1,
+    recallerOutputMap = 0.1,
+    aggregator = 0.1,
+    outputMap = 0.1
+}
+-------------------------------------------------------------------------------
+return synthqa_attunspv_model

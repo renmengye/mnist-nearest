@@ -10,9 +10,9 @@
 local mynn = require('mynn')
 local VRNegMSEReward, parent = torch.class('mynn.VRNegMSEReward', 'nn.Criterion')
 
-function VRNegMSEReward:__init(module, scale, criterion)
+function VRNegMSEReward:__init(reinforceUnits, scale, criterion)
    parent.__init(self)
-   self.module = module -- so it can call module:reinforce(reward)
+   self.reinforceUnits = reinforceUnits
    self.scale = scale or 1 -- scale of reward
    self.criterion = criterion or nn.MSECriterion() -- baseline criterion
    self.sizeAverage = true
@@ -43,9 +43,17 @@ function VRNegMSEReward:updateGradInput(inputTable, target)
    if self.sizeAverage then
       self.vrReward:div(input:size(1))
    end
+   -- print(self.vrReward)
    -- broadcast reward to modules
-   self.module:reinforce(self.vrReward)
-   
+   -- print(torch.cat(self.reward, baseline, 2))
+   if type(self.reinforceUnits) == 'table' then
+      for i, unit in ipairs(self.reinforceUnits) do
+         unit:reinforce(self.vrReward)
+      end
+   else
+      self.reinforceUnits:reinforce(self.vrReward)
+   end
+
    -- zero gradInput (this criterion has no gradInput for class pred)
    self.gradInput[1]:resizeAs(input):zero()
    self.gradInput[1] = self:fromBatch(self.gradInput[1], 1)

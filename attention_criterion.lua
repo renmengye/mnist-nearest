@@ -46,20 +46,18 @@ end
 -------------------------------------------------------------------------------
 function AttentionCriterion:updateGradInput(inputTable, target)
     -- Pretend that we only know 10% of the groundtruth object of interst.
-    local N
-    if self.labels:size(1) > 10 then
-        N = torch.floor(self.labels:size(1) / 10)
-    else
-        N = 1
-    end
-    -- print(self.inputReshape:size())
-    -- print(self.labels:size())
-    -- print(N)
-    local gradInput = self.criterion:backward(self.inputReshape[{{1, N}}], 
-        self.labels[{{1, N}}])
-
-    self.gradInput[1] = torch.Tensor(inputTable[1]:size()):zero()
-    self.gradInput[1][{{1, N}}]:copy(gradInput)
+    -- local N
+    -- if self.labels:size(1) > 10 then
+    --     N = torch.floor(self.labels:size(1) / 10)
+    -- else
+    --     N = 1
+    -- end    
+    -- local gradInput = self.criterion:backward(self.inputReshape[{{1, N}}], 
+    --     self.labels[{{1, N}}])
+    -- self.gradInput[1] = torch.Tensor(inputTable[1]:size()):zero()
+    -- self.gradInput[1][{{1, N}}]:copy(gradInput)
+    local gradInput = self.criterion:backward(self.inputReshape, self.labels)
+    self.gradInput[1] = gradInput
     self.gradInput[2] = torch.Tensor(inputTable[2]:size()):zero()
     self.gradInput[3] = torch.Tensor(inputTable[3]:size()):zero()
     self.gradInput[4] = torch.Tensor(inputTable[4]:size()):zero()

@@ -6,6 +6,9 @@ local nnevaluator = require('nnevaluator')
 local nnserializer = require('nnserializer')
 local adam = require('adam')
 local attspv_model = require('synthqa_attspv_model')
+local attunspv_model = require('synthqa_attunspv_model')
+local conv_model = require('synthqa_conv_model')
+local optim_pkg = require('optim')
 torch.setnumthreads(1)
 
 -------------------------------------------------------------------------------
@@ -21,6 +24,9 @@ cmd:option('-load', false, 'whether to load the trained network')
 cmd:option('-path', 'synthqa.w.h5', 'save network path')
 cmd:option('-num_ex', 10000, 'number of generated examples')
 cmd:option('-attention', 'hard', 'hard or soft attention')
+cmd:option('-model', 'super', 'super/unsuper/conv')
+cmd:option('-viz', false, 'whether to visualize attention')
+-- cmd:option('-reinforce', true, 'whether has expected reward')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -53,17 +59,6 @@ params.model = {
     attentionMechanism = opt.attention,
     objective = opt.objective
 }
-params.gradClipTable = {
-    catEmbed = 0.1,
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
-    encoder = 0.1,
-    decoder = 0.1,
-    recaller = 0.1,
-    recallerOutputMap = 0.1,
-    aggregator = 0.1,
-    outputMap = 0.1
-}
 params.loopConfig = {
     numEpoch = 10000,
     batchSize = 64,
@@ -95,73 +90,113 @@ data = {
         params.data.numExamples}}]
 }
 local model = {}
-model.train = attspv_model.create(params.model, true)
-model.eval = attspv_model.create(params.model, true)
+local modelLib
+if opt.model == 'super' then
+    modelLib = attspv_model
+elseif opt.model == 'unsuper' then
+    modelLib = attunspv_model
+elseif opt.model == 'conv' then
+    modelLib = conv_model
+else
+    logger:logFatal(string.format('Unknown model %s', opt.model))
+end
+model.train = modelLib.create(params.model, true)
+model.eval = modelLib.create(params.model, true)
+model.gradClipTable = modelLib.gradClipTable
+model.learningRates = modelLib.learningRates
+
 model.train.sliceLayer(model.train.w, 'catEmbed'):copy(
     torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
 if opt.load then
     nnserializer.load(model.train, opt.path)
 end
 local optimizer = optim.adam2
-params.optimConfig.gradientClip = 
-    utils.gradientClip(params.gradClipTable, model.train.sliceLayer)
+if model.gradientClip then
+    params.optimConfig.gradientClip = 
+        utils.gradientClip(model.gradClipTable, model.train.sliceLayer)
+end
+if model.learningRates then
+    params.optimConfig.learningRates = 
+        utils.fillVector(torch.Tensor(model.train.w:size()):zero(), 
+            model.train.sliceLayer, model.learningRates)
+end
 local trainer = NNTrainer(
     model.train, params.loopConfig, optimizer, params.optimConfig)
-local getVisualizeAttention = function(
-    evalModel, 
-    softNormAttentionModule, 
-    softUnnormAttentionModule, 
-    hardAttentionModule, 
-    recallerModule)
+if not modelLib.getVisualize then
+    modelLib.getVisualize = function(
+        model, 
+        softNormAttentionModule, 
+        softUnnormAttentionModule, 
+        hardAttentionModule, 
+        recallerModule,
+        data,
+        rawData)
         return function()
-        logger:logInfo('attention visualization')
-        local numVisualize = 10
-        local numItems = synthqa.NUM_GRID
-        local testSubset = data.testData[{{1, numVisualize}}]
-        local testRawSubset
-        local outputTable = model.eval:forward(testSubset)
-        local offset = torch.floor(params.data.numExamples / 2)
-        for n = 1, numVisualize do
-            local rawDataItem = rawData[offset + n]
-            local output = outputTable[1][n][1]
-            print(string.format('%d. Q: %s (%d) A: %s O: %d', 
-                n, rawDataItem.question, testSubset[n][-1], 
-                rawDataItem.answer, output))
-            for i = 1, numItems do
-                io.write(string.format('%6d', testSubset[n][(i - 1) * 6 + 1]))
-            end
-            io.write('\n')
-            for t = 1, params.model.decoderSteps do
-                local selIdx = 1
+            logger:logInfo('attention visualization')
+            local numItems = synthqa.NUM_GRID
+            local outputTable = model:forward(data)
+            for n = 1, data:size(1) do
+                local rawDataItem = rawData[n]
+                local output = outputTable[1][n][1]
+                print(string.format('%d. Q: %s (%d) A: %s O: %d', 
+                    n, rawDataItem.question, data[n][-1], 
+                    rawDataItem.answer, output))
                 for i = 1, numItems do
-                    if hardAttentionModule.output[n][t][i] == 1.0 then
-                        selIdx = i
-                        io.write(string.format(
-                            ' %3.2f^', 
-                            softNormAttentionModule.output[n][t][i]))
-                    else
-                        io.write(string.format(
-                            ' %3.2f ', 
-                            softNormAttentionModule.output[n][t][i]))
-                    end
+                    io.write(string.format('%6d', data[n][(i - 1) * 6 + 1]))
                 end
-                io.write(string.format(' (%.2f)', 
-                    recallerModule.output[n][t][1]))
-                io.write(string.format(' (%.2f)', 
-                    softUnnormAttentionModule.output[n][t][selIdx]))
                 io.write('\n')
+                for t = 1, params.model.decoderSteps do
+                    local selIdx = 1
+                    for i = 1, numItems do
+                        if hardAttentionModule.output[n][t][i] == 1.0 then
+                            selIdx = i
+                            io.write(string.format(
+                                ' %3.2f^', 
+                                softNormAttentionModule.output[n][t][i]))
+                        else
+                            io.write(string.format(
+                                ' %3.2f ', 
+                                softNormAttentionModule.output[n][t][i]))
+                        end
+                    end
+                    io.write(string.format(' (%.2f)', 
+                        recallerModule.output[n][t][1]))
+                    io.write(string.format(' (%.2f)', 
+                        softUnnormAttentionModule.output[n][t][selIdx]))
+                    io.write('\n')
+                end
             end
         end
     end
 end
 
-local visualizeAttention = getVisualizeAttention(
-    model.eval,
-    model.eval.moduleMap['penAttentionValueReshape'],
-    model.eval.moduleMap['softAttentionValueReshape'],
-    model.eval.moduleMap['hardAttentionValueReshape'],
-    model.eval.moduleMap['recallerBinaryReshape'])
-visualizeAttention()
+local visualize
+if opt.viz then
+    local rawDataSubset = {}
+    local numVisualize = 10
+    local offset = torch.floor(params.data.numExamples / 2)
+    for i = 1, numVisualize do
+        table.insert(rawDataSubset, rawData[offset + i])
+    end
+    local testData = data.testData[{{1, numVisualize}}]
+    if opt.model == 'conv' then
+        visualize = modelLib.getVisualize(
+            model.eval,
+            model.eval.moduleMap['attentionReshape'],
+            testData,
+            rawDataSubset)
+    else 
+        visualize = modelLib.getVisualize(
+            model.eval,
+            model.eval.moduleMap['penAttentionValueReshape'],
+            model.eval.moduleMap['softAttentionValueReshape'],
+            model.eval.moduleMap['hardAttentionValueReshape'],
+            model.eval.moduleMap['recallerBinaryReshape'],
+            testData,
+            rawDataSubset)
+    end
+    visualize()
+end
 local trainEval = NNEvaluator('train', model.eval)
 local testEval = NNEvaluator('test', model.eval, 
     {
@@ -183,8 +218,8 @@ if opt.train then
             if epoch % 5 == 0 then
                 testEval:evaluate(data.testData, data.testLabels, 1000)
             end
-            if epoch % 5 == 0 then
-                visualizeAttention()
+            if epoch % 5 == 0 and opt.viz then
+                visualize()
             end
             if opt.save then
                 if epoch % 1 == 0 then
