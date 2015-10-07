@@ -111,11 +111,9 @@ function utils.combineAllParameters(...)
     local parameters = {}
     local gradParameters = {}
     for i = 1, #networks do
-        logger:logInfo(i, 2)
         local net_params, net_grads = networks[i]:parameters()
         if net_params then
             for _, p in pairs(net_params) do
-                logger:logInfo(p:size(), 2)
                 parameters[#parameters + 1] = p
             end
             for _, g in pairs(net_grads) do

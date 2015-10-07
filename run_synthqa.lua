@@ -8,6 +8,7 @@ local adam = require('adam')
 local attspv_model = require('synthqa_attspv_model')
 local attunspv_model = require('synthqa_attunspv_model')
 local conv_model = require('synthqa_conv_model')
+local statatt_model = require('synthqa_statatt_model')
 local optim_pkg = require('optim')
 torch.setnumthreads(1)
 
@@ -37,6 +38,16 @@ end
 logger:logInfo('----------------------------')
 
 -------------------------------------------------------------------------------
+local dataset = synthqa.genHowManyObject(opt.num_ex)
+local data, labels = synthqa.prep(dataset, 'regression')
+data = {
+    trainData = data[{{1, torch.floor(opt.num_ex / 2)}}],
+    trainLabels = labels[{{1, torch.floor(opt.num_ex / 2)}}],
+    testData = data[
+        {{torch.floor(opt.num_ex / 2) + 1, opt.num_ex}}],
+    testLabels = labels[
+        {{torch.floor(opt.num_ex / 2) + 1, opt.num_ex}}]
+}
 local params = {}
 params.name = opt.name
 params.data = {
@@ -50,8 +61,9 @@ params.model = {
     encoderDim = 10,
     recallerDim = 10,
     aggregatorDim = 10,
+    inputItemDim = 7, -- Encode item grid id as the 7th element
     itemDim = 8,
-    numItems = 9,
+    numItems = dataset.maxNumItems,
     decoderSteps = 12,
     vocabSize = #synthqa.idict,
     numObject = #synthqa.OBJECT + 1,
@@ -77,18 +89,6 @@ params.labelStart = 0
 logger:logInfo('---------- params ----------')
 logger:logInfo(table.tostring(params))
 logger:logInfo('----------------------------')
-local rawData = synthqa.genHowManyObject(params.data.numExamples)
-local data, labels = synthqa.prep(rawData, 'regression')
-data = {
-    trainData = data[{{1, torch.floor(params.data.numExamples / 2)}}],
-    trainLabels = labels[{{1, torch.floor(params.data.numExamples / 2)}}],
-    testData = data[
-        {{torch.floor(params.data.numExamples / 2) + 1, 
-        params.data.numExamples}}],
-    testLabels = labels[
-        {{torch.floor(params.data.numExamples / 2) + 1, 
-        params.data.numExamples}}]
-}
 local model = {}
 local modelLib
 if opt.model == 'super' then
@@ -97,6 +97,8 @@ elseif opt.model == 'unsuper' then
     modelLib = attunspv_model
 elseif opt.model == 'conv' then
     modelLib = conv_model
+elseif opt.model == 'static' then
+    modelLib = statatt_model
 else
     logger:logFatal(string.format('Unknown model %s', opt.model))
 end
@@ -126,43 +128,58 @@ if not modelLib.getVisualize then
     modelLib.getVisualize = function(
         model, 
         softNormAttentionModule, 
-        softUnnormAttentionModule, 
+        softAttentionSelModule, 
         hardAttentionModule, 
         recallerModule,
         data,
-        rawData)
+        dataset)
         return function()
             logger:logInfo('attention visualization')
-            local numItems = synthqa.NUM_GRID
+            -- local numItems = synthqa.NUM_GRID
+            local numItems = model.params.numItems
             local outputTable = model:forward(data)
             for n = 1, data:size(1) do
-                local rawDataItem = rawData[n]
+                local rawDataItem = dataset[n]
                 local output = outputTable[1][n][1]
+                local realNumItems = 0
                 print(string.format('%d. Q: %s (%d) A: %s O: %d', 
                     n, rawDataItem.question, data[n][-1], 
-                    rawDataItem.answer, output))
+                    rawDataItem.answer, torch.round(output)))
+                local itemsort, sortidx = data[n]:narrow(
+                    1, 1, numItems * model.params.inputItemDim):reshape(
+                    numItems, model.params.inputItemDim):select(
+                    2, model.params.inputItemDim):sort()
                 for i = 1, numItems do
-                    io.write(string.format('%6d', data[n][(i - 1) * 6 + 1]))
+                    local idx = sortidx[i]
+                    local cat = data[n][
+                        (idx - 1) * model.params.inputItemDim + 1]
+                    local grid = data[n][idx * model.params.inputItemDim]
+                    if cat == 4 and grid > synthqa.NUM_GRID then
+                        break
+                    end
+                    io.write(string.format('%3d(%1d)', cat, grid))
+                    realNumItems = realNumItems + 1
                 end
                 io.write('\n')
-                for t = 1, params.model.decoderSteps do
-                    local selIdx = 1
-                    for i = 1, numItems do
-                        if hardAttentionModule.output[n][t][i] == 1.0 then
-                            selIdx = i
+                for t = 1, model.params.decoderSteps do
+                    -- local selIdx = 0
+                    for i = 1, realNumItems do
+                        local idx = sortidx[i]
+                        if hardAttentionModule.output[n][t][idx] == 1.0 then
+                            selIdx = idx
                             io.write(string.format(
                                 ' %3.2f^', 
-                                softNormAttentionModule.output[n][t][i]))
+                                softNormAttentionModule.output[n][t][idx]))
                         else
                             io.write(string.format(
                                 ' %3.2f ', 
-                                softNormAttentionModule.output[n][t][i]))
+                                softNormAttentionModule.output[n][t][idx]))
                         end
                     end
                     io.write(string.format(' (%.2f)', 
                         recallerModule.output[n][t][1]))
                     io.write(string.format(' (%.2f)', 
-                        softUnnormAttentionModule.output[n][t][selIdx]))
+                        softAttentionSelModule.output[n][t][1]))
                     io.write('\n')
                 end
             end
@@ -176,10 +193,10 @@ if opt.viz then
     local numVisualize = 10
     local offset = torch.floor(params.data.numExamples / 2)
     for i = 1, numVisualize do
-        table.insert(rawDataSubset, rawData[offset + i])
+        table.insert(rawDataSubset, dataset[offset + i])
     end
     local testData = data.testData[{{1, numVisualize}}]
-    if opt.model == 'conv' then
+    if opt.model == 'conv' or opt.model == 'static' then
         visualize = modelLib.getVisualize(
             model.eval,
             model.eval.moduleMap['attentionReshape'],
@@ -189,7 +206,7 @@ if opt.viz then
         visualize = modelLib.getVisualize(
             model.eval,
             model.eval.moduleMap['penAttentionValueReshape'],
-            model.eval.moduleMap['softAttentionValueReshape'],
+            model.eval.moduleMap['softAttentionSelJoin'],
             model.eval.moduleMap['hardAttentionValueReshape'],
             model.eval.moduleMap['recallerBinaryReshape'],
             testData,

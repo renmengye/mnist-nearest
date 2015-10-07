@@ -2,7 +2,7 @@ local torch = require('torch')
 local nn = require('nn')
 local nngraph = require('nngraph')
 local rnn = require('rnn')
-local lstm = require('lstm')
+local gru = require('gru')
 local constant = require('constant')
 local batch_reshape = require('batch_reshape')
 local lazy_sequential = require('lazy_sequential')
@@ -17,15 +17,15 @@ local optim_pkg = require('optim')
 local adam2 = require('adam')
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
--- torch.setdefaulttensortype('torch.DoubleTensor')
 
+-------------------------------------------------------------------------------
 local cmd = torch.CmdLine()
 cmd:text()
-cmd:text('LSTM Toy Training')
+cmd:text('GRU Toy Training')
 cmd:text()
 cmd:text('Options:')
 cmd:option('-task', 'parity', 'parity or sum')
-cmd:option('-path', 'lstm_parity.w.h5', 'save network path')
+cmd:option('-path', 'gru_parity.w.h5', 'save network path')
 cmd:option('-save', false, 'whether to save the trained network')
 cmd:text()
 opt = cmd:parse(arg)
@@ -35,42 +35,39 @@ function createModel(numHidden, timespan)
     local numInput = 1
     local modelInput = nn.Identity()()
     local splitTable = nn.SplitTable(2)(modelInput)
-    local constState = mynn.Constant({2 * numHidden}, 0)(modelInput)
-    local lstmCore = lstm.createUnit(numInput, numHidden)
-    local lstm = nn.RNN(lstmCore, timespan)({splitTable, constState})
-    local join = nn.JoinTable(2)(lstm)
-    local lstmOutputReshape = mynn.BatchReshape(2 * numHidden)(join)
-    local lstmOutputSel = nn.Narrow(
-        2, numHidden + 1, numHidden)(lstmOutputReshape)
-    local linear = nn.Linear(numHidden, 1)(lstmOutputSel)
-    local sigmoid
+    local constState = mynn.Constant({numHidden}, 0)(modelInput)
+    local gruCore = gru.createUnit(numInput, numHidden)
+    local grnn = nn.RNN(gruCore, timespan)({splitTable, constState})
+    local join = nn.JoinTable(2)(grnn)
+    local grnnOutputReshape = mynn.BatchReshape(numHidden)(join)
+    local linear = nn.Linear(numHidden, 1)(grnnOutputReshape)
+    local final
     if opt.task == 'parity' then
-        sigmoid = nn.Sigmoid()(linear)
+        final = nn.Sigmoid()(linear)
     else
-        sigmoid = linear
+        final = linear
     end
 
-    local all
+    local all = nn.LazyGModule({modelInput}, {final})
     if opt.task == 'parity' then
-        all = nn.LazyGModule({modelInput}, {sigmoid})
         all.criterion = nn.BCECriterion()
         all.decision = function (pred)
             return torch.gt(pred, 0.5):float()
         end
     elseif opt.task == 'sum' then
-        all = nn.LazyGModule({modelInput}, {sigmoid})
         all.criterion = nn.MSECriterion()
         all.decision = function (pred)
             return torch.round(pred):float()
         end
     end
-    all:addModule('lstm', lstm)
+    all:addModule('grnn', grnn)
     all:addModule('linear', linear)
     all:setup()
-    lstm.data.module:expand()
+    grnn.data.module:expand()
     return all
 end
 
+-------------------------------------------------------------------------------
 function getData(N, T)
     -- Parity --
     local data = torch.Tensor(N, T, 1)
@@ -105,16 +102,20 @@ function getData(N, T)
     }
 end
 
--- Generate train data
+-------------------------------------------------------------------------------
 local N = 1000
 local H = 10
 local T = 20
-local params
+local TT = 25
 
-local data, labels, rawData, model, evalModel, labelStart, classes
+-------------------------------------------------------------------------------
+local data, labels, rawData, model, evalModel, evalModel2, labelStart, classes
 data = getData(N, T)
 model = createModel(H, T)
 evalModel = createModel(H, T)
+evalModel2 = createModel(H, TT)
+
+-------------------------------------------------------------------------------
 if opt == 'sum' then
     labelStart = 0
     classes = {}
@@ -125,40 +126,37 @@ else
     labelStart = 1
     classes = {'0', '1'}
 end
-
 local gradClipTable = {
-    lstm = 0.1,
+    grnn = 0.1,
     linear = 0.1
 }
-
 local loopConfig = {
     numEpoch = 1000,
     batchSize = 20,
     progressBar = false
 }
 
+-------------------------------------------------------------------------------
 local optimizer = optim.adam2
 local optimConfig = {
     learningRate = 0.1,
     gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
 }
 
+-------------------------------------------------------------------------------
 local nntrainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
 local trainEval = NNEvaluator('train', model)
 local testEval = NNEvaluator('test', model)
-local testSequenceLength = 25
-local evalModel2 = createModel(H, testSequenceLength)
 local visualizeSeq = function()
     local numItems = 1
-    local T = testSequenceLength
     local testSubset
     if opt.task == 'parity' or opt.task == 'sum' then
-        testSubset = getData(numItems * 2, T)
+        testSubset = getData(numItems * 2, TT)
         evalModel2.w:copy(model.w)
         local y = evalModel2:forward(testSubset.testData)
         for n = 1, numItems do
             print('example', n)
-            for t = 1, T do
+            for t = 1, TT do
                 io.write(string.format('%6d', testSubset.testData[n][t][1]))
                 io.write(string.format('%6.2f', y[t][1]))
                 io.write(string.format('%6.2f', testSubset.testLabels[1][t]))
@@ -169,6 +167,7 @@ local visualizeSeq = function()
     end
 end
 
+-------------------------------------------------------------------------------
 visualizeSeq()
 nntrainer:trainLoop(
     data.trainData, data.trainLabels,
@@ -186,6 +185,7 @@ nntrainer:trainLoop(
         end
     end)
 
+-------------------------------------------------------------------------------
 if opt.save then
     nnserializer.save(model, opt.path)
 end

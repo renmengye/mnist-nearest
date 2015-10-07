@@ -3,6 +3,7 @@ local logger = require('logger')()
 local table_utils = require('table_utils')
 local imageqa = require('imageqa')
 local utils = require('utils')
+local nnevaluator = require('nnevaluator')
 local synthqa = {}
 
 -------------------------------------------------------------------------------
@@ -71,6 +72,8 @@ synthqa.OBJECT_SIZE_AVG = 0.1
 synthqa.OBJECT_SIZE_STD = 0.03
 synthqa.X_STD = 0.05
 synthqa.Y_STD = 0.05
+synthqa.HAS_DUPLICATES = false
+synthqa.DUPLICATES_LAMBDA = 1.0
 
 -------------------------------------------------------------------------------
 function combine(tables)
@@ -88,6 +91,7 @@ end
 -------------------------------------------------------------------------------
 function synthqa.genHowManyObject(N)
     local dataset = {}
+    local maxNumItems = 0
     for i = 1, N do
         local objectOfInterest = i % #synthqa.OBJECT + 1
         local question = string.format(
@@ -103,13 +107,26 @@ function synthqa.genHowManyObject(N)
             local objCat = torch.ceil(torch.uniform() * (#synthqa.OBJECT + 1))
             numObj[objCat] = numObj[objCat] + 1
             table.insert(items, {category = objCat, color = 1, grid = j})
+            -- Each items have some dupelicates.
+            -- Number of duplicates
+            if synthqa.HAS_DUPLICATES then
+                local numDup = torch.exponential(synthqa.DUPLICATES_LAMBDA)
+                if numDup > 0 then
+                    for k = 1, numDup do
+                        table.insert(items, 
+                            {category = objCat, color = 1, grid = j})
+                    end
+                end
+            end
         end
         local answer = synthqa.NUMBER[numObj[objectOfInterest] + 1]
+        if #items > maxNumItems then maxNumItems = #items end
         logger:logInfo(
             string.format(
-                'N1: %d, N2: %d, N3: %d, N: %d', 
-                numObj[1], numObj[2], numObj[3], 
-                numObj[1] + numObj[2] + numObj[3]), 2)
+                'N1: %d, N2: %d, N3: %d, N4:%d, N: %d, NN: %d', 
+                numObj[1], numObj[2], numObj[3], numObj[4],
+                numObj[1] + numObj[2] + numObj[3],
+                #items), 2)
         logger:logInfo(
             string.format(
                 'Q: %s, A: %s', 
@@ -121,6 +138,9 @@ function synthqa.genHowManyObject(N)
             items = items
         })
     end
+    dataset.maxNumItems = maxNumItems
+    dataset.hasDuplicate = synthqa.HAS_DUPLICATES
+    logger:logInfo(string.format('Max number of items: %d', maxNumItems), 2)
     return dataset
 end
 
@@ -151,12 +171,16 @@ function synthqa.getCoord(grid, noise)
 end
 
 -------------------------------------------------------------------------------
-function synthqa.encodeItems(allItems)
+function synthqa.encodeItems(datasetItems, numItems, encodeGridId)
     -- Category ID (1)
     -- Color ID (1)
     -- X, Y coordinates (2)
+    -- Unique grid ID (for duplicates removal groundtruth)
     -- local colorIdict = imageqa.invertDict(COLOR)
     -- local objTypeIdict = imageqa.invertDict(OBJECT)
+    if encodeGridId == nil then
+        encodeGridId = true
+    end
     local function getCoord(grid, noise)
         if noise == nil then
             noise = true
@@ -181,9 +205,16 @@ function synthqa.encodeItems(allItems)
                 synthqa.OBJECT_SIZE_AVG, synthqa.OBJECT_SIZE_AVG})
         end
     end
-    local numDim = 1 + 1 + 4
-    local result = torch.Tensor(#allItems, synthqa.NUM_GRID * numDim):zero()
-    for i, items in ipairs(allItems) do
+    
+    local numDim
+    if encodeGridId then
+        numDim = 7
+    else
+        numDim = 6
+    end
+    local result = torch.Tensor(
+        #datasetItems, numItems * numDim):zero()
+    for i, items in ipairs(datasetItems) do
         if #items > 0 then
             local itemShuffle = torch.randperm(#items)
             -- Shuffle items
@@ -199,7 +230,16 @@ function synthqa.encodeItems(allItems)
                         result[
                         {i, {(j - 1) * numDim + 3, (j - 1) * numDim + 6}}] = 
                         getCoord(value)
+                        if encodeGridId then
+                            result[{i, (j - 1) * numDim + 7}] = value
+                        end
                     end
+                end
+            end
+            if #items < numItems then
+                for j = #items + 1, numItems do
+                    result[{i, {(j - 1) * numDim + 1, j * numDim}}] = 
+                        torch.Tensor({4, 1, 1, 1, 1, 1, 10})
                 end
             end
         end
@@ -220,39 +260,49 @@ synthqa.dict = combine({
 synthqa.idict = imageqa.invertDict(synthqa.dict)
 
 -------------------------------------------------------------------------------
-function synthqa.prep(rawData, objective)
+function synthqa.prep(dataset, objective)
     if objective == nil then
         objective = 'classification'
     end
+    logger:logInfo(string.format('dataset label encoding: %s', objective))
     logger:logInfo(table.tostring(synthqa.dict), 2)
     logger:logInfo(table.tostring(synthqa.idict), 2)
     local questions = {}
     local answers = {}
-    local allItems = {}
-    for i, entry in ipairs(rawData) do
+    local datasetItems = {}
+    for i, entry in ipairs(dataset) do
         table.insert(questions, entry.question)
         table.insert(answers, entry.answer)
-        table.insert(allItems, entry.items)
+        table.insert(datasetItems, entry.items)
     end
 
     -- N x Q
     local questionIds = imageqa.encodeSentences(questions, synthqa.dict, true)
+    logger:logInfo(string.format('question length: %d', questionIds:size(2)))
     -- N
     local answerIds = 
         imageqa.encodeSentences(answers, synthqa.dict, true):reshape(#answers)
-    -- N x 54
-    local itemIds = synthqa.encodeItems(allItems)
+    -- N x 54 or N x 63 (encode grid id)
+    local itemIds = synthqa.encodeItems(
+        datasetItems, dataset.maxNumItems, true)
+    logger:logInfo('encoded questions', 2)
     logger:logInfo(questionIds, 2)
+    logger:logInfo('encoded answers', 2)
     logger:logInfo(answerIds, 2)
-    logger:logInfo(itemIds:reshape(#answers, synthqa.NUM_GRID, 6), 2)
+    logger:logInfo('encoded items', 2)
+    logger:logInfo(itemIds:reshape(
+        #answers, dataset.maxNumItems, 
+        itemIds:size(2) / dataset.maxNumItems), 2)
 
-    -- N x (54 + Q)
+    -- N x (54 + Q) or N x (63 + Q) (encode grid id)
     local data = torch.cat(itemIds, questionIds, 2)
     local labels = answerIds:long()
     if objective == 'regression' then
         labels = labels - synthqa.dict['0']
         labels = labels:float()
     end
+    logger:logInfo('encoded labels', 2)
+    logger:logInfo(labels, 2)
     return data, labels
 end
 
@@ -264,6 +314,7 @@ function synthqa.checkExists(dataset, example)
             local allSame = true
             for j, item2 in ipairs(example2.items) do
                 local item = example.items[j]
+                -- print(item)
                 if item2.category ~= item.category or
                     item2.color ~= item.color or
                     item2.grid ~= item.grid then
@@ -292,4 +343,14 @@ function synthqa.checkOverlap(dataset1, dataset2)
 end
 
 -------------------------------------------------------------------------------
+
+-- local rawData = synthqa.genHowManyObject(5000)
+-- local rawData2 = synthqa.genHowManyObject(5000)
+-- local data, labels = synthqa.prep(rawData, 'regression')
+-- synthqa.checkOverlap(rawData, rawData2)
+-- nnevaluator.getClassAccuracyAnalyzer(
+--     function(x) return x end, 
+--     {'0','1','2','3','4','5','6','7','8','9'},
+--     0)(labels, labels)
+
 return synthqa

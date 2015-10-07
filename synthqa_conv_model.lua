@@ -22,6 +22,7 @@ function synthqa_conv_model.create(params, training)
     -- params.encoderDim
     -- params.recallerDim
     -- params.aggregatorDim
+    -- params.inputItemDim
     -- params.itemDim
     -- params.numItems
     -- params.decoderSteps
@@ -40,8 +41,9 @@ function synthqa_conv_model.create(params, training)
     local input = nn.Identity()()
 
     -- Items to attend
-    local items = nn.Narrow(2, 1, params.numItems * 6)(input)
-    local itemsReshape = nn.Reshape(params.numItems, 6)(items)
+    local items = nn.Narrow(2, 1, params.numItems * params.inputItemDim)(input)
+    local itemsReshape = nn.Reshape(
+        params.numItems, params.inputItemDim)(items)
     local catId = nn.Select(3, 1)(itemsReshape)
     local catIdReshape = mynn.BatchReshape()(catId)
     catIdReshape.data.module.name = 'catIdReshape'
@@ -66,8 +68,10 @@ function synthqa_conv_model.create(params, training)
 
     -- Word Embeddings
     local wordIds = nn.Narrow(
-        2, params.numItems * 6 + 1, params.questionLength)(input)
-    local itemOfInterest = nn.Select(2, params.numItems * 6 + 3)(input)
+        2, params.numItems * params.inputItemDim + 1, params.questionLength)(
+        input)
+    local itemOfInterest = nn.Select(
+        2, params.numItems * params.inputItemDim + 3)(input)
     local wordEmbed = nn.LookupTable(
         #synthqa.idict, params.wordEmbedDim)(
         mynn.GradientStopper()(wordIds))
@@ -96,13 +100,9 @@ function synthqa_conv_model.create(params, training)
     local attention = nn.MM()({itemsJoinedReshape, itemFilterTH})
     local attentionReshape = nn.Sigmoid()(
         mynn.BatchReshape(params.numItems)(attention))
-    -- local attentionReshape = mynn.BatchReshape(params.numItems)(attention)
-    -- local final = nn.Linear(params.numItems, 1)(attentionReshape)
     local final = nn.Sum(2)(attentionReshape)
-    -- local final = nn.Linear(params.numItems, 1)(attentionReshape)
 
     all = nn.LazyGModule({input}, {final})
-
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
     all:addModule('wordEmbed', wordEmbed)
@@ -122,6 +122,7 @@ function synthqa_conv_model.create(params, training)
         local num = torch.round(pred)
         return num
     end
+    all.params = params
 
     return all
 end
@@ -133,26 +134,40 @@ synthqa_conv_model.getVisualize = function(
     rawData)
     return function()
         logger:logInfo('attention visualization')
-        local numItems = synthqa.NUM_GRID
+        local numItems = model.params.numItems
         local outputTable = model:forward(data)
         for n = 1, data:size(1) do
             local rawDataItem = rawData[n]
+            local realNumItems = 0
             local output
             if outputTable:size():size() == 2 then
                 output = outputTable[n][1]
             else
                 output = outputTable[n]
             end
+            local itemsort, sortidx = data[n]:narrow(
+                1, 1, numItems * model.params.inputItemDim):reshape(
+                numItems, model.params.inputItemDim):select(
+                2, model.params.inputItemDim):sort()
             print(string.format('%d. Q: %s (%d) A: %s O: %d', 
                 n, rawDataItem.question, data[n][-1], 
                 rawDataItem.answer, output))
             for i = 1, numItems do
-                io.write(string.format('%6d', data[n][(i - 1) * 6 + 1]))
+                local idx = sortidx[i]
+                local cat = data[n][
+                    (idx - 1) * model.params.inputItemDim + 1]
+                local grid = data[n][idx * model.params.inputItemDim]
+                if cat == 4 and grid > synthqa.NUM_GRID then
+                    break
+                end
+                io.write(string.format('%3d(%1d)', cat, grid))
+                realNumItems = realNumItems + 1
             end
             io.write('\n')
-            for i = 1, numItems do
+            for i = 1, realNumItems do
+                local idx = sortidx[i]
                 io.write(string.format(
-                    '%6.2f', attentionModule.output[n][i]))
+                    '%6.2f', attentionModule.output[n][idx]))
             end
             io.write('\n')
         end

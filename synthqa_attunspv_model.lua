@@ -164,6 +164,7 @@ function synthqa_attunspv_model.create(params, training)
     -- params.encoderDim
     -- params.recallerDim
     -- params.aggregatorDim
+    -- params.inputItemDim
     -- params.itemDim
     -- params.numItems
     -- params.decoderSteps
@@ -182,8 +183,9 @@ function synthqa_attunspv_model.create(params, training)
     local input = nn.Identity()()
 
     -- Items to attend
-    local items = nn.Narrow(2, 1, params.numItems * 6)(input)
-    local itemsReshape = nn.Reshape(params.numItems, 6)(items)
+    local items = nn.Narrow(2, 1, params.numItems * params.inputItemDim)(input)
+    local itemsReshape = nn.Reshape(
+        params.numItems, params.inputItemDim)(items)
     local catId = nn.Select(3, 1)(itemsReshape)
     local catIdReshape = mynn.BatchReshape()(catId)
     catIdReshape.data.module.name = 'catIdReshape'
@@ -193,6 +195,11 @@ function synthqa_attunspv_model.create(params, training)
     local coord = nn.Narrow(3, 3, 4)(itemsReshape)
     local coordReshape = mynn.BatchReshape(4)(coord)
     coordReshape.data.module.name = 'coordReshape'
+    
+    -- Ground truth for training the memory recall layer.
+    local gridId = nn.Select(3, 7)(itemsReshape)
+
+    -- Item embeddings
     local catEmbed = nn.LookupTable(
         params.numObject, params.objectEmbedDim)(
         mynn.GradientStopper()(catIdReshape))
@@ -206,10 +213,12 @@ function synthqa_attunspv_model.create(params, training)
         params.numItems, params.itemDim)(itemsJoined)
     itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
 
-    -- Word Embeddings
+    -- Word embeddings
     local wordIds = nn.Narrow(
-        2, params.numItems * 6 + 1, params.questionLength)(input)
-    local itemOfInterest = nn.Select(2, params.numItems * 6 + 3)(input)
+        2, params.numItems * params.inputItemDim + 1, params.questionLength)(
+        input)
+    local itemOfInterest = nn.Select(
+        2, params.numItems * params.inputItemDim + 3)(input)
     local wordEmbed = nn.LookupTable(
         #synthqa.idict, params.wordEmbedDim)(
         mynn.GradientStopper()(wordIds))
@@ -360,26 +369,44 @@ function synthqa_attunspv_model.create(params, training)
         local ow, odldw = outputMap.data.module:getParameters()
         ow:copy(params.outputMapWeights)
     end
-    local final = nn.Select(2, params.decoderSteps)(outputMapReshape)
 
-    local attentionOut = nn.Identity()(
-        {softAttentionValueReshape, 
-         hardAttentionValueReshape,
-         itemOfInterest, 
-         catIdReshape,
-         penAttentionValueReshape})
+    -- Model outputs
+    local final = nn.Select(2, params.decoderSteps)(outputMapReshape)
+    local countingCriterionOutput = nn.Identity()(
+        {
+            outputMapReshape,
+            recallerAttMul
+        })
+    local attentionCriterionOutput = nn.Identity()(
+        {
+            softAttentionValueReshape, 
+            hardAttentionValueReshape,
+            itemOfInterest, 
+            catIdReshape,
+            penAttentionValueReshape
+        })
+    local doubleCountingCriterionOutput = nn.Identity()(
+        {
+            recallerBinaryReshape, 
+            gridId, 
+            hardAttentionValueReshape
+        })
     local expectedReward = mynn.Weights(1)(input)
     expectedReward.data.module.name = 'expectedReward'
-    local reinforceOut = nn.Identity()(
-        {final,
-         expectedReward})
+    local reinforceOutput = nn.Identity()(
+        {
+            final,
+            expectedReward
+        })
 
-    all = nn.LazyGModule({input}, 
-        {final, 
-        outputMapReshape, 
-        attentionOut, 
-        recallerBinaryReshape,
-        reinforceOut})
+    local all = nn.LazyGModule({input}, 
+        {
+            final, 
+            countingCriterionOutput,
+            attentionCriterionOutput, 
+            doubleCountingCriterionOutput,
+            reinforceOutput
+        })
 
     all:addModule('catEmbed', catEmbed)
     all:addModule('colorEmbed', colorEmbed)
@@ -415,15 +442,18 @@ function synthqa_attunspv_model.create(params, training)
     -- Criterion and decision function
     all.criterion = nn.ParallelCriterion(true)
       :add(nn.MSECriterion(), 0.1)
-      :add(mynn.CountingCriterion(recallerAttMul.data.module), 0.1)
-      :add(mynn.AttentionCriterion(decoder.data.module), 0.0)
-      :add(mynn.DoubleCountingCriterion(decoder.data.module), 1.0)
+      :add(mynn.CountingCriterion(), 0.1)
+      :add(mynn.AttentionCriterion(), 0.0)
+      :add(mynn.DoubleCountingCriterion(), 1.0)
       :add(mynn.VRNegMSEReward(reinforceUnits, 1.0), 1.0)
       -- :add(mynn.VRRoundEqReward(reinforceUnits, 10.0), 1.0)
     all.decision = function(pred)
         local num = torch.round(pred)
         return num
     end
+
+    -- Store parameters
+    all.params = params
 
     return all
 end

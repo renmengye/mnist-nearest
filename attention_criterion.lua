@@ -2,10 +2,9 @@ local mynn = require('mynn')
 local logger = require('logger')()
 local AttentionCriterion, parent = torch.class('mynn.AttentionCriterion', 'nn.Criterion')
 
-function AttentionCriterion:__init(decoder, criterion)
+function AttentionCriterion:__init(criterion)
     parent.__init(self)
-    self.decoder = decoder
-    self.criterion = criterion or nn.MSECriterion() -- baseline criterion
+    self.criterion = criterion or nn.MSECriterion()
     self.gradInput = {torch.Tensor()}
 end
 
@@ -62,11 +61,6 @@ function AttentionCriterion:updateGradInput(inputTable, target)
     self.gradInput[3] = torch.Tensor(inputTable[3]:size()):zero()
     self.gradInput[4] = torch.Tensor(inputTable[4]:size()):zero()
 
-    -- broadcast reward to modules
-    -- local decoder = self.decoder
-    -- for t, rep in ipairs(decoder.replicas) do
-    --     decoder.replicas[t].moduleMap['attention']:reinforce(torch.Tensor(self.inputReshape:size(1)):zero())
-    -- end
     return self.gradInput
 end
 

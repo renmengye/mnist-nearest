@@ -2,36 +2,36 @@ local mynn = require('mynn')
 local logger = require('logger')()
 local DoubleCountingCriterion, parent = torch.class('mynn.DoubleCountingCriterion', 'nn.Criterion')
 
-function DoubleCountingCriterion:__init(decoder, criterion)
+-------------------------------------------------------------------------------
+function DoubleCountingCriterion:__init(criterion)
     parent.__init(self)
-    self.decoder = decoder
-    self.criterion = criterion or nn.BCECriterion() -- baseline criterion
+    self.criterion = criterion or nn.BCECriterion()
     self.sizeAverage = true
-    self.gradInput = {torch.Tensor()}
+    self.gradInput = {}
 end
 
 -------------------------------------------------------------------------------
 function DoubleCountingCriterion:updateOutput(input, target)
-    local attentionIdx = {}
-    for t, decoderUnit in ipairs(self.decoder.replicas) do
-        local _, idx = decoderUnit.moduleMap['attention'].output:max(2)
-        table.insert(attentionIdx, idx)
-    end
-    self.inputReshape = input:reshape(input:size(1), input:size(2))
+    local numItems
+    self.inputReshape = input[1]:reshape(input[1]:size(1), input[1]:size(2))
+    self.gtGrid = input[2]
+    _, self.attentionIdx = torch.max(input[3], 3)
+    numItems = torch.max(self.gtGrid)
     self.labels = torch.Tensor(self.inputReshape:size()):zero()
-    for n = 1, input:size(1) do
+    for n = 1, self.inputReshape:size(1) do
         local seen = {}
-        for i = 1, 9 do
+        for i = 1, numItems do
             seen[i] = 0
         end
-        for t = 1, #attentionIdx do
-            local idx = attentionIdx[t][n][1]
-            self.labels[n][t] = 1 - seen[idx]
-            seen[idx] = 1
+        for t = 1, self.inputReshape:size(2) do
+            local idx = self.attentionIdx[n][t][1]
+            local grid = self.gtGrid[n][idx]
+            self.labels[n][t] = 1 - seen[grid]
+            seen[grid] = 1
             if verb then io.write('\n') end
         end
     end
-    -- print(self.inputReshape, self.labels)
+    -- print(self.inputReshape, self.gtGrid, self.labels)
     self.output = self.criterion:forward(self.inputReshape, self.labels)
     -- print(self.output)
     return self.output
@@ -39,7 +39,9 @@ end
 
 -------------------------------------------------------------------------------
 function DoubleCountingCriterion:updateGradInput(input, target)
-    self.gradInput = self.criterion:backward(self.inputReshape, self.labels)
+    self.gradInput[1] = self.criterion:backward(self.inputReshape, self.labels)
+    self.gradInput[2] = torch.Tensor(input[2]:size()):zero()
+    self.gradInput[3] = torch.Tensor(input[3]:size()):zero()
     return self.gradInput
 end
 
