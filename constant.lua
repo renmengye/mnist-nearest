@@ -34,7 +34,8 @@ function Constant:updateOutput(input)
     if self.name == 'ones' then
         print(torch.Tensor(outputShape):fill(self.value))
     end
-    return torch.Tensor(outputShape):fill(self.value)
+    self.output = torch.Tensor(outputShape):fill(self.value)
+    return self.output
 end
 
 function Constant:updateGradInput(input, gradOutput)

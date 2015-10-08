@@ -93,9 +93,13 @@ function utils.gradientClip(clipTable, sliceLayer)
             end
         end
         dl_dw_clipped = torch.Tensor(dl_dw:size()):zero()
-        for key, value in pairs(clipTable) do
-            grad = sliceLayer(dl_dw, key)
-            sliceLayer(dl_dw_clipped, key):copy(clip(grad, value))
+        if type(clipTable) == 'table' then
+            for key, value in pairs(clipTable) do
+                grad = sliceLayer(dl_dw, key)
+                sliceLayer(dl_dw_clipped, key):copy(clip(grad, value))
+            end
+        else
+            dl_dw_clipped = clip(dl_dw, clipTable)
         end
         return dl_dw_clipped
     end

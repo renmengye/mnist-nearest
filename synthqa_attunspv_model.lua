@@ -13,6 +13,7 @@ local lazy_gmodule = require('lazy_gmodule')
 local vr_neg_mse_reward = require('vr_neg_mse_reward')
 local vr_round_eq_reward = require('vr_round_eq_reward')
 local vr_attention_count_reward = require('vr_attention_count_reward')
+local synthqa_model =  require('synthqa_model')
 local synthqa_attunspv_model = {}
 
 -------------------------------------------------------------------------------
@@ -181,48 +182,12 @@ function synthqa_attunspv_model.create(params, training)
 
     -- Input
     local input = nn.Identity()()
-
-    -- Items to attend
-    local items = nn.Narrow(2, 1, params.numItems * params.inputItemDim)(input)
-    local itemsReshape = nn.Reshape(
-        params.numItems, params.inputItemDim)(items)
-    local catId = nn.Select(3, 1)(itemsReshape)
-    local catIdReshape = mynn.BatchReshape()(catId)
-    catIdReshape.data.module.name = 'catIdReshape'
-    local colorId = nn.Select(3, 2)(itemsReshape)
-    local colorIdReshape = mynn.BatchReshape()(colorId)
-    colorIdReshape.data.module.name = 'colorIdReshape'
-    local coord = nn.Narrow(3, 3, 4)(itemsReshape)
-    local coordReshape = mynn.BatchReshape(4)(coord)
-    coordReshape.data.module.name = 'coordReshape'
-    
-    -- Ground truth for training the memory recall layer.
-    local gridId = nn.Select(3, 7)(itemsReshape)
-
-    -- Item embeddings
-    local catEmbed = nn.LookupTable(
-        params.numObject, params.objectEmbedDim)(
-        mynn.GradientStopper()(catIdReshape))
-    local colorEmbed = nn.LookupTable(
-        params.numColor, params.colorEmbedDim)(
-        mynn.GradientStopper()(colorIdReshape))
-    local itemsJoined = nn.JoinTable(2, 2)(
-        {catEmbed, colorEmbed, coordReshape})
-    itemsJoined.data.module.name = 'itemsJoined'
-    local itemsJoinedReshape = mynn.BatchReshape(
-        params.numItems, params.itemDim)(itemsJoined)
-    itemsJoinedReshape.data.module.name = 'itemsJoinedReshape'
-
-    -- Word embeddings
-    local wordIds = nn.Narrow(
-        2, params.numItems * params.inputItemDim + 1, params.questionLength)(
-        input)
-    local itemOfInterest = nn.Select(
-        2, params.numItems * params.inputItemDim + 3)(input)
-    local wordEmbed = nn.LookupTable(
-        #synthqa.idict, params.wordEmbedDim)(
-        mynn.GradientStopper()(wordIds))
-    local wordEmbedSeq = nn.SplitTable(2)(wordEmbed)
+    local inputProc = synthqa_model.createInputProc(params)(input)
+    local itemsJoinedReshape = nn.SelectTable(1)(inputProc)
+    local wordEmbedSeq = nn.SelectTable(2)(inputProc)
+    local gridId = nn.SelectTable(3)(inputProc)
+    local itemOfInterest = nn.SelectTable(4)(inputProc)
+    local catIdReshape = nn.SelectTable(5)(inputProc)
 
     -- Encoder LSTM
     local constantEncoderState = mynn.Constant(params.encoderDim * 2, 0)(input)
@@ -408,9 +373,7 @@ function synthqa_attunspv_model.create(params, training)
             reinforceOutput
         })
 
-    all:addModule('catEmbed', catEmbed)
-    all:addModule('colorEmbed', colorEmbed)
-    all:addModule('wordEmbed', wordEmbed)
+    all:addModule('inputProc', inputProc)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
     all:addModule('recaller', recaller)
@@ -460,23 +423,8 @@ end
 
 -------------------------------------------------------------------------------
 
--- synthqa_attunspv_model.learningRates = {
---     catEmbed = 0.1,
---     colorEmbed = 0.1,
---     wordEmbed = 0.1,
---     encoder = 0.1,
---     decoder = 0.1,
---     recaller = 0.1,
---     recallerOutputMap = 0.1,
---     aggregator = 0.1,
---     outputMap = 0.1,
---     expectedReward = 1.0
--- }
-
-synthqa_attunspv_model.gradClipTable = {
-    catEmbed = 0.1,
-    colorEmbed = 0.1,
-    wordEmbed = 0.1,
+synthqa_attunspv_model.gradientClip = {
+    inputProc = 0.1,
     encoder = 0.1,
     decoder = 0.1,
     recaller = 0.1,

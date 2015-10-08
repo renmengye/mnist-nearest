@@ -56,6 +56,7 @@ function RNN:updateOutput(input)
         -- print(output[t])
     end
     -- print('haha', output[1]:size())
+    self.output = output
     return output
 end
 

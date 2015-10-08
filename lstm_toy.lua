@@ -36,29 +36,29 @@ function createModel(numHidden, timespan)
     local modelInput = nn.Identity()()
     local splitTable = nn.SplitTable(2)(modelInput)
     local constState = mynn.Constant({2 * numHidden}, 0)(modelInput)
-    local lstmCore = lstm.createUnit(numInput, numHidden)
-    local lstm = nn.RNN(lstmCore, timespan)({splitTable, constState})
+    -- local lstmCore = lstm.createUnit(numInput, numHidden)
+    -- local lstm = nn.RNN(lstmCore, timespan)({splitTable, constState})
+    local lstm = lstm.createLayer(numInput, numHidden, timespan)(
+        {splitTable, constState})
     local join = nn.JoinTable(2)(lstm)
     local lstmOutputReshape = mynn.BatchReshape(2 * numHidden)(join)
     local lstmOutputSel = nn.Narrow(
         2, numHidden + 1, numHidden)(lstmOutputReshape)
     local linear = nn.Linear(numHidden, 1)(lstmOutputSel)
-    local sigmoid
+    local final
     if opt.task == 'parity' then
-        sigmoid = nn.Sigmoid()(linear)
+        final = nn.Sigmoid()(linear)
     else
-        sigmoid = linear
+        final = linear
     end
 
-    local all
+    local all = nn.LazyGModule({modelInput}, {final})
     if opt.task == 'parity' then
-        all = nn.LazyGModule({modelInput}, {sigmoid})
         all.criterion = nn.BCECriterion()
         all.decision = function (pred)
             return torch.gt(pred, 0.5):float()
         end
     elseif opt.task == 'sum' then
-        all = nn.LazyGModule({modelInput}, {sigmoid})
         all.criterion = nn.MSECriterion()
         all.decision = function (pred)
             return torch.round(pred):float()
@@ -66,8 +66,7 @@ function createModel(numHidden, timespan)
     end
     all:addModule('lstm', lstm)
     all:addModule('linear', linear)
-    all:setup()
-    lstm.data.module:expand()
+    all:setup()all:expand()
     return all
 end
 
@@ -140,7 +139,7 @@ local loopConfig = {
 local optimizer = optim.adam2
 local optimConfig = {
     learningRate = 0.1,
-    gradientClip = utils.gradientClip(gradClipTable, model.sliceLayer)
+    gradientClip = utils.gradientClip(1.0)
 }
 
 local nntrainer = NNTrainer(model, loopConfig, optimizer, optimConfig)
@@ -154,7 +153,7 @@ local visualizeSeq = function()
     local testSubset
     if opt.task == 'parity' or opt.task == 'sum' then
         testSubset = getData(numItems * 2, T)
-        evalModel2.w:copy(model.w)
+        evalModel2:getParameters():copy(model:getParameters())
         local y = evalModel2:forward(testSubset.testData)
         for n = 1, numItems do
             print('example', n)

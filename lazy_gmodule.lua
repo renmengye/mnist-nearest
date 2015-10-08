@@ -6,7 +6,6 @@ local table_utils = require('table_utils')
 
 local LazyGModule, parent = torch.class('nn.LazyGModule', 'nn.gModule')
 
--- Currently not working
 -------------------------------------------------------------------------------
 function LazyGModule:__init(...)
     params = {...}
@@ -24,6 +23,15 @@ function LazyGModule:addModule(name, module)
 end
 
 -------------------------------------------------------------------------------
+function LazyGModule:addModuleMap(moduleMap)
+    for key, value in pairs(moduleMap) do
+        self.moduleMap[key] = value.data.module
+        table.insert(self.moduleNames, key)
+        table.insert(self.moduleList, value.data.module)
+    end
+end
+
+-------------------------------------------------------------------------------
 function LazyGModule:setup()
     self.w, self.dl_dw = utils.combineAllParameters(self.moduleList)
     self.parameterMap = utils.getParameterMap(self.moduleList, self.moduleNames)
@@ -32,9 +40,23 @@ function LazyGModule:setup()
 end
 
 -------------------------------------------------------------------------------
+function LazyGModule:expand()
+    for k, mod in ipairs(self.moduleList) do
+        if mod.expand then
+            mod:expand()
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 function LazyGModule:getParameters()
     if not self.isSetup then
         self:setup()
     end
     return self.w, self.dl_dw
+end
+
+-------------------------------------------------------------------------------
+function LazyGModule:parameters()
+    return {self.w}, {self.dl_dw}
 end

@@ -48,6 +48,8 @@ data = {
     testLabels = labels[
         {{torch.floor(opt.num_ex / 2) + 1, opt.num_ex}}]
 }
+
+-------------------------------------------------------------------------------
 local params = {}
 params.name = opt.name
 params.data = {
@@ -80,8 +82,8 @@ params.optimConfig = {
     learningRate = 0.1,
     -- Decay to 0.1 after 100 epochs
     learningRateDecay = 0.1 / (opt.num_ex / 2 / params.loopConfig.batchSize),
-    momentum = 0.9,
     weightDecay = 0.000005
+    -- gradientClip = utils.gradientClip(1.0)
 }
 params.answerDict = synthqa.NUMBER
 params.labelStart = 0
@@ -89,6 +91,8 @@ params.labelStart = 0
 logger:logInfo('---------- params ----------')
 logger:logInfo(table.tostring(params))
 logger:logInfo('----------------------------')
+
+-------------------------------------------------------------------------------
 local model = {}
 local modelLib
 if opt.model == 'super' then
@@ -104,26 +108,33 @@ else
 end
 model.train = modelLib.create(params.model, true)
 model.eval = modelLib.create(params.model, true)
-model.gradClipTable = modelLib.gradClipTable
+model.gradientClip = modelLib.gradientClip
 model.learningRates = modelLib.learningRates
 
-model.train.sliceLayer(model.train.w, 'catEmbed'):copy(
-    torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
+-------------------------------------------------------------------------------
+-- model.train.sliceLayer(model.train.w, 'catEmbed'):copy(
+--     torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
 if opt.load then
     nnserializer.load(model.train, opt.path)
 end
 local optimizer = optim.adam2
+
+-- Layer-wise learning rates or gradient clipping
 if model.gradientClip then
     params.optimConfig.gradientClip = 
-        utils.gradientClip(model.gradClipTable, model.train.sliceLayer)
+        utils.gradientClip(model.gradientClip, model.train.sliceLayer)
 end
 if model.learningRates then
     params.optimConfig.learningRates = 
         utils.fillVector(torch.Tensor(model.train.w:size()):zero(), 
             model.train.sliceLayer, model.learningRates)
 end
+
+-------------------------------------------------------------------------------
 local trainer = NNTrainer(
     model.train, params.loopConfig, optimizer, params.optimConfig)
+
+-------------------------------------------------------------------------------
 if not modelLib.getVisualize then
     modelLib.getVisualize = function(
         model, 
@@ -135,7 +146,6 @@ if not modelLib.getVisualize then
         dataset)
         return function()
             logger:logInfo('attention visualization')
-            -- local numItems = synthqa.NUM_GRID
             local numItems = model.params.numItems
             local outputTable = model:forward(data)
             for n = 1, data:size(1) do
@@ -187,6 +197,7 @@ if not modelLib.getVisualize then
     end
 end
 
+-------------------------------------------------------------------------------
 local visualize
 if opt.viz then
     local rawDataSubset = {}
@@ -214,6 +225,8 @@ if opt.viz then
     end
     visualize()
 end
+
+-------------------------------------------------------------------------------
 local trainEval = NNEvaluator('train', model.eval)
 local testEval = NNEvaluator('test', model.eval, 
     {
@@ -223,6 +236,8 @@ local testEval = NNEvaluator('test', model.eval,
             model.eval.decision, params.answerDict, params.labelStart),
         NNEvaluator.getAccuracyAnalyzer(model.eval.decision)
     })
+
+-------------------------------------------------------------------------------
 if opt.train then
     trainer:trainLoop(
         data.trainData, data.trainLabels,

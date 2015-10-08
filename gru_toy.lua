@@ -60,6 +60,7 @@ function createModel(numHidden, timespan)
             return torch.round(pred):float()
         end
     end
+    all:addModule('constState', constState)
     all:addModule('grnn', grnn)
     all:addModule('linear', linear)
     all:setup()
@@ -154,12 +155,18 @@ local visualizeSeq = function()
         testSubset = getData(numItems * 2, TT)
         evalModel2.w:copy(model.w)
         local y = evalModel2:forward(testSubset.testData)
+        print(evalModel2.moduleMap['constState'].output)
         for n = 1, numItems do
             print('example', n)
             for t = 1, TT do
-                io.write(string.format('%6d', testSubset.testData[n][t][1]))
-                io.write(string.format('%6.2f', y[t][1]))
-                io.write(string.format('%6.2f', testSubset.testLabels[1][t]))
+                io.write(string.format('%6d |', testSubset.testData[n][t][1]))
+                for i = 1, H do
+                    io.write(string.format('%6.2f', 
+                        evalModel2.moduleMap['grnn'].output[t][n][i]))
+                end
+                io.write(' |')
+                io.write(string.format('%6.2f |', y[t][1]))
+                io.write(string.format('%6.2f', testSubset.testLabels[n][t]))
                 io.write('\n')
             end
             io.write('\n')

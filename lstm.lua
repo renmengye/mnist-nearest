@@ -2,11 +2,26 @@ local torch = require('torch')
 local nn = require('nn')
 local nngraph = require('nngraph')
 local weights = require('weights')
+local constant = require('constant')
 local batch_reshape = require('batch_reshape')
 local logger = require('logger')()
 local dpnn = require('dpnn')
+local rnn = require('rnn')
 local one_hot = require('one_hot')
+local expand_gmodule = require('expand_gmodule')
 local lstm = {}
+
+-------------------------------------------------------------------------------
+function lstm.createLayer(inputDim, hiddenDim, timespan)
+    local input = nn.Identity()()
+    local inputSeq = nn.SelectTable(1)(input)
+    local state0 = nn.SelectTable(2)(input)
+    local core = lstm.createUnit(inputDim, hiddenDim)
+    local rnn = nn.RNN(core, timespan)({input, constState})
+    local layer = nn.ExpandGModule({input}, {rnn})
+    layer:addModule('rnn', rnn)
+    return layer
+end
 
 -------------------------------------------------------------------------------
 function lstm.createUnit(inputDim, hiddenDim, initRange)
