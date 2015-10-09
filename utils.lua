@@ -74,8 +74,8 @@ end
 -------------------------------------------------------------------------------
 function utils.fillVector(vector, sliceLayer, valueTable)
     for key, value in pairs(valueTable) do
-        print(key, value)
         sliceLayer(vector, key):fill(value)
+        logger:logInfo(string.format('%s: %f', key, value))
     end
     return vector
 end
@@ -219,8 +219,9 @@ function utils.getParameterMap(params, names)
         parameterMap[names[k]][1] = counter + 1
         if net_params then
             for _, p in pairs(net_params) do
-                logger:logInfo(names[k])
-                logger:logInfo(p:numel())
+                logger:logInfo(string.format(
+                    'node: %s start: %d #params: %d', 
+                    names[k], counter, p:numel()))
                 counter = counter + p:numel()
             end
         end

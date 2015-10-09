@@ -14,6 +14,7 @@ RETURN:
 - `x`     : the new x vector
 - `f(x)`  : the function, evaluated before the update
 ]]
+local logger = require('logger')()
 
 function optim.adam2(opfunc, x, config, state)
     -- (0) get/update state
@@ -22,6 +23,7 @@ function optim.adam2(opfunc, x, config, state)
     local wd = config.weightDecay or 0
     local lr = config.learningRate or 0.001
     local lrs = config.learningRates
+    -- logger:logFatal(lrs)
     local lrd = config.learningRateDecay or 0
     local wds = config.weightDecays
     state.evalCounter = state.evalCounter or 0
@@ -67,7 +69,7 @@ function optim.adam2(opfunc, x, config, state)
     local clr = lr / (1 + nevals * lrd)
     if lrs then
         stepSize = clr * math.sqrt(biasCorrection2) / biasCorrection1
-        stepSize = lrs:mul(stepSize)
+        stepSize = lrs * stepSize
         x:addcdiv(-1, state.m:cmul(stepSize), state.denom)
     else
         stepSize = clr * math.sqrt(biasCorrection2) / biasCorrection1

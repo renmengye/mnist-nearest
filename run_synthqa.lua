@@ -20,14 +20,15 @@ cmd:text()
 cmd:text('Options:')
 cmd:option('-name', 'synthqa', 'name of the thing')
 cmd:option('-train', false, 'whether to train a new network')
-cmd:option('-save', false, 'whether to save the trained network')
 cmd:option('-load', false, 'whether to load the trained network')
-cmd:option('-path', 'synthqa.w.h5', 'save network path')
+cmd:option('-loadpath', 'synthqa.w.h5', 'load network path')
+cmd:option('-save', false, 'whether to save the trained network')
+cmd:option('-savepath', 'synthqa.w.h5', 'save network path')
 cmd:option('-num_ex', 10000, 'number of generated examples')
 cmd:option('-attention', 'hard', 'hard or soft attention')
 cmd:option('-model', 'super', 'super/unsuper/conv')
 cmd:option('-viz', false, 'whether to visualize attention')
--- cmd:option('-reinforce', true, 'whether has expected reward')
+cmd:option('-loadpre', false, 'pretrained static attention network')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -93,6 +94,17 @@ logger:logInfo(table.tostring(params))
 logger:logInfo('----------------------------')
 
 -------------------------------------------------------------------------------
+if opt.loadpre then
+    local pretrained = hdf5.open('synthqa_conv_model.w.h5', 'r')
+    params.model.itemFilterLTWeights = pretrained:read('itemFilterLT'):all()
+    params.model.encoderWeights = pretrained:read('encoder'):all()
+    params.model.inputProcWeights = pretrained:read('inputProc'):all()
+    modelLib.learningRates.inputProc = 0.0
+    modelLib.learningRates.encoder = 0.0
+    modelLib.learningRates.decoder = 0.0
+end
+
+-------------------------------------------------------------------------------
 local model = {}
 local modelLib
 if opt.model == 'super' then
@@ -112,10 +124,9 @@ model.gradientClip = modelLib.gradientClip
 model.learningRates = modelLib.learningRates
 
 -------------------------------------------------------------------------------
--- model.train.sliceLayer(model.train.w, 'catEmbed'):copy(
---     torch.Tensor({{0, 0}, {0, 1}, {1, 0}, {1, 1}}))
 if opt.load then
-    nnserializer.load(model.train, opt.path)
+    nnserializer.load(model.train, opt.loadpath)
+    model.eval.w:copy(model.train.w)
 end
 local optimizer = optim.adam2
 
@@ -125,9 +136,11 @@ if model.gradientClip then
         utils.gradientClip(model.gradientClip, model.train.sliceLayer)
 end
 if model.learningRates then
+    logger:logInfo('fill learning rates by layer')
     params.optimConfig.learningRates = 
         utils.fillVector(torch.Tensor(model.train.w:size()):zero(), 
             model.train.sliceLayer, model.learningRates)
+    params.optimConfig.learningRate = 1.0
 end
 
 -------------------------------------------------------------------------------
@@ -256,7 +269,7 @@ if opt.train then
             if opt.save then
                 if epoch % 1 == 0 then
                     logger:logInfo('saving model')
-                    nnserializer.save(model.eval, opt.path)
+                    nnserializer.save(model.eval, opt.savepath)
                 end
             end
         end)

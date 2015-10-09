@@ -72,7 +72,7 @@ synthqa.OBJECT_SIZE_AVG = 0.1
 synthqa.OBJECT_SIZE_STD = 0.03
 synthqa.X_STD = 0.05
 synthqa.Y_STD = 0.05
-synthqa.HAS_DUPLICATES = false
+synthqa.HAS_DUPLICATES = true
 synthqa.DUPLICATES_LAMBDA = 1.0
 
 -------------------------------------------------------------------------------

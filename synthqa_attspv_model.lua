@@ -29,8 +29,12 @@ function synthqa_attspv_model.create(params, training)
     -- params.vocabSize
     -- params.numObject
     -- params.numColor
-    -- params.attentionMechanism: 'soft' or 'hard'
     -- params.objective
+
+    -- Pretrained weights
+    -- params.inputProcWeights
+    -- params.encoderWeights
+    -- params.attentionUnitWeights
     -- params.aggregatorWeights
     -- params.outputMapWeights
     if training == nil then
@@ -47,27 +51,23 @@ function synthqa_attspv_model.create(params, training)
     local catIdReshape = nn.SelectTable(5)(inputProc)
 
     -- Question encoder
-    local encoder = synthqa_model.createEncoderLSTM(params, wordEmbedSeq, input)
+    local encoder = synthqa_model.createEncoderGRNN(
+        params, wordEmbedSeq, input)
+
+    -- Select last timestep
     local encoderStateSel = nn.SelectTable(params.questionLength)(encoder)
 
     -- Attention decoder
-    -- local decoderCore = synthqa_model.createLSTMAttentionController(
-    --     1, params.encoderDim, params.numItems, params.itemDim, 0.1, 
-    --     params.attentionMechanism, training)
-    local decoderCore = synthqa_model.createLSTMAttentionController(
-        params, training)
-
-    local decoder = synthqa_model.createDecoderLSTM(
+    local decoderCore = synthqa_model.createGRNNAttentionController(
+        params, 0.1, -10, training)
+    local decoder = synthqa_model.createDecoderRNN(
         params, decoderCore, encoderStateSel, itemsJoinedReshape)
 
-    -- Attended item at every timestep (split, T, N x M)
-    -- Attention value with penalty (joined, N x T x M)
-    -- Attention value hard (joined, N x T x M)
-    -- Attention value soft (joined, N x T x M)
-    -- Attention value selected (joined, N x T)
-    attentionOutputTable, penAttentionValueReshape, hardAttentionValueReshape, 
-        softAttentionValueReshape, softAttentionSelJoin = 
-        synthqa_model.decoderOutputs(params, decoder)
+    -- Decoder output
+    local attentionOutputTable, penAttentionValueReshape, 
+        hardAttentionValueReshape, softAttentionValueReshape, 
+        softAttentionSelJoin = 
+        synthqa_model.createDecoderGRNNOutputs(params, decoder)
 
     -- Recaller
     local recaller, recallerOutputMap, recallerBinaryReshape, recallerAttMul, 
@@ -110,6 +110,24 @@ function synthqa_attspv_model.create(params, training)
             doubleCountingCriterionOutput
         })
 
+    -- Load pretrained weights
+    if params.inputProcWeights then
+        local w, dl_dw = inputProc.data.module:getParameters()
+        w:copy(params.inputProcWeights)
+    end
+    if params.encoderWeights then
+        local w, dl_dw = encoder.data.module.core:getParameters()
+        w:copy(params.encoderWeights)
+    end
+    if params.aggregatorWeights then
+        local w, dl_dw = aggregator.data.module.core:getParameters()
+        w:copy(params.aggregatorWeights)
+    end
+    if params.outputMapWeights then
+        local w, dl_dw = outputMap.data.module:getParameters()
+        w:copy(params.outputMapWeights)
+    end
+
     all:addModule('inputProc', inputProc)
     all:addModule('encoder', encoder)
     all:addModule('decoder', decoder)
@@ -128,9 +146,9 @@ function synthqa_attspv_model.create(params, training)
 
     -- Criterion and decision function
     all.criterion = nn.ParallelCriterion(true)
-      :add(nn.MSECriterion(), 0.0)
-      :add(mynn.CountingCriterion(), 0.1)
-      :add(mynn.AttentionCriterion(), 1.0)
+      :add(nn.MSECriterion(), 0.1)
+      :add(mynn.CountingCriterion(), 1.0)
+      :add(mynn.AttentionCriterion(), 0.0)
       :add(mynn.DoubleCountingCriterion(), 1.0)
     all.decision = function(pred)
         local num = torch.round(pred)
@@ -144,6 +162,16 @@ function synthqa_attspv_model.create(params, training)
 end
 
 -------------------------------------------------------------------------------
+synthqa_attspv_model.learningRates = {
+    inputProc = 0.01,
+    encoder = 0.01,
+    decoder = 0.01,
+    recaller = 0.1,
+    recallerOutputMap = 0.1,
+    aggregator = 0.1,
+    outputMap = 0.1
+}
+
 synthqa_attspv_model.gradientClip = {
     inputProc = 0.1,
     encoder = 0.1,
