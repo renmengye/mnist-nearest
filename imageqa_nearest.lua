@@ -221,27 +221,27 @@ end
 local adict, iadict = imageqa.readDict(adictPath)
 local qdict, iqdict = imageqa.readDict(qdictPath)
 
--- local testPred, testLabelSubset
--- testPred, testLabelSubset = run(data, true, false)
--- local outputFile = io.open(opt.output, 'w')
--- for i = 1, testPred:size(1) do
---     outputFile:write(iadict[testPred[i] + 1])
---     outputFile:write('\n')
--- end
--- outputFile:close()
--- local gtFile = io.open(opt.gt, 'w')
--- for i = 1, testLabelSubset:size(1) do
---     local wordid = testLabelSubset[i][1] + 1
---     local word = iadict[wordid]
---     if word ~= nil then
---         gtFile:write(word)
---         gtFile:write('\n')
---     else
---         logger:logError(string.format('N: %d No found word: %d', i, wordid))
---         gtFile:write('NILNIL\n')
---     end
--- end
--- gtFile:close()
+local testPred, testLabelSubset
+testPred, testLabelSubset = run(data, true, false)
+local outputFile = io.open(opt.output, 'w')
+for i = 1, testPred:size(1) do
+    outputFile:write(iadict[testPred[i] + 1])
+    outputFile:write('\n')
+end
+outputFile:close()
+local gtFile = io.open(opt.gt, 'w')
+for i = 1, testLabelSubset:size(1) do
+    local wordid = testLabelSubset[i][1] + 1
+    local word = iadict[wordid]
+    if word ~= nil then
+        gtFile:write(word)
+        gtFile:write('\n')
+    else
+        logger:logError(string.format('N: %d No found word: %d', i, wordid))
+        gtFile:write('NILNIL\n')
+    end
+end
+gtFile:close()
 
 local qFile = io.open(string.format('%s_questions.txt', opt.dataset), 'w')
 for i = 1, data.testLabel:size(1) do
