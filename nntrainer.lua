@@ -49,6 +49,7 @@ function NNTrainer:getEvalFn(x, labels)
         if self.optimConfig.gradientClip then
             dl_dw:copy(self.optimConfig.gradientClip(dl_dw))
         end
+        -- print(dl_dw)
         logger:logInfo(string.format('After clip: %.4f', torch.norm(dl_dw)), 2)
         return loss, dl_dw
     end

@@ -41,7 +41,7 @@ end
 function BatchReshape:updateOutput(input)
    -- print('BatchReshape forward')
    -- if self.name then
-   --    print(self.name)
+      -- print(self.name)
    -- end
    -- print(input:size())
    if not input:isContiguous() then

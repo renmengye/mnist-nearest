@@ -37,24 +37,27 @@ function run(data, printProgress, printNearestNeighbours)
     else
         processNearest = nil
     end
-    for k = 1, 61, 2 do
-        local validPred = knn.runAll(
-            k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
-        local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
-        local rate = utils.evalPrediction(validPred, validLabelSubset)
-        if rate > bestRate then
-            bestRate = rate
-            bestK = k
-        end
-    end
+    -- for k = 13 : 13 do
+    --     local validPred = knn.runAll(
+    --         k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
+    --     local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
+    --     local rate = utils.evalPrediction(validPred, validLabelSubset)
+    --     if rate > bestRate then
+    --         bestRate = rate
+    --         bestK = k
+    --     end
+    -- end
+    bestK = 13
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
-    numTest = data.testData:size()[1]
+    numTest = 10
+    -- numTest = data.testData:size()[1]
     local testPred = knn.runAll(
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
     local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
     utils.evalPrediction(testPred, testLabelSubset)
+    return testPred
 end
 
 function getOneHot(data, vocabSize)
@@ -90,13 +93,14 @@ cmd:text()
 cmd:text('ImageQA Nearest Neighbours')
 cmd:text()
 cmd:text('Options:')
-cmd:option('-normimg', false, 'whether to have the normalized image feature')
-cmd:option('-normbow', false, 'whether to have the normalized bow feature')
+cmd:option('-normimg', false, 'Whether to have the normalized image feature')
+cmd:option('-normbow', false, 'Whether to have the normalized bow feature')
 cmd:option('-trained_word_embed', false, 'Whether to use trained word embedding as BOW feature vector')
 
 -- This should be better but may perform worse on smaller dataset like COCO-QA
 cmd:option('-image_only', false, 'Only run on image features')
 cmd:option('-text_only', false, 'Only run on BOW vectors')
+cmd:option('-output', 'imageqa_nearest_out.txt', 'Output file')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -186,4 +190,13 @@ end
 
 -- print(data.trainData[1])
 collectgarbage()
-run(data, false, true)
+
+local dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
+local adict, iadict = imageqa.readDict(dictPath)
+local testPred = run(data, false, true)
+local outputFile = io.open(opt.output, 'w')
+for i = 1, testPred:size(1) do
+    outputFile:write(iadict[testPred[i]])
+    outputFile:write('\n')
+end
+outputFile:close(outputFile)

@@ -1,6 +1,7 @@
 local torch = require('torch')
 local utils = require('utils')
 local knn = require('nearest_neighbours')
+local logger = require('logger')()
 local kmeans = {}
 
 function kmeans.run(K, data, numIter)
@@ -30,7 +31,7 @@ function kmeans.run(K, data, numIter)
             means[k] = dataSubset:mean(1)
             cost = cost + knn.distanceBatch(dataSubset, means[k]):sum() / m
         end
-        print(string.format('iter: %d, cost: %.5f', i, cost))
+        logger:logInfo(string.format('Iter: %d, Cost: %.5f', i, cost))
         collectgarbage()
     end
     return means

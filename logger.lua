@@ -21,11 +21,6 @@ local term = {
     cyan = '\027[36m',
     white = '\027[37m', 
     default = '\027[39m'
-    -- onblack = '\027[47m',
-    -- onred = '\027[49m',
-    -- ongreen = '\027[0m', 
-    -- onyellow = '\027[1m',
-    -- onblue = '\027[7m'
 }
 Logger.type = {
     INFO = 0,

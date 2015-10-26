@@ -119,9 +119,43 @@ function synthseg.encodeDataset(dataset)
 end
 
 -------------------------------------------------------------------------------
--- local dataset = synthseg.gen(100)
+function synthseg.encodeDataset2(dataset)
+    -- Encode without query but with semantic GT
+    local items = synthseg.getItems(dataset)
+    local itemsEncoded = synthseg.encodeItems(items)
+    local semLabels = synthseg.getSemanticLabels(dataset)
+    semLabels = semLabels:reshape(semLabels:size(1), semLabels:size(2), 1)
+    local data = torch.cat(itemsEncoded, semLabels, 3)
+    return data
+    -- return data:reshape(data:size(1), data:numel() / data:size(1))
+end
+
+-------------------------------------------------------------------------------
+function synthseg.getOneInstanceLabels(dataset)
+    local result = torch.Tensor(#dataset, synthseg.MAX_LEN):zero()
+    for i = 1, #dataset do
+        local part = 1
+        for j = 1, #dataset[i].items do
+            if dataset[i].items[j].category == dataset[i].objectOfInterest and
+                dataset[i].items[j].part == part then
+                result[i][j] = 1
+                part = part + 1
+            elseif dataset[i].items[j].category == dataset[i].objectOfInterest and
+                dataset[i].items[j].part ~= part then
+                break
+            end
+        end
+    end
+    -- logger:logInfo(result)
+    return result
+end
+
+-------------------------------------------------------------------------------
+local dataset = synthseg.gen(10)
 -- logger:logInfo(table.tostring(dataset[1]))
 -- synthseg.encodeItems({dataset[1].items})
--- synthseg.getSemanticLabels({dataset[1]})
+synthseg.getSemanticLabels(dataset)
+synthseg.getOneInstanceLabels(dataset)
+local data = synthseg.encodeDataset2(dataset)
 
 return synthseg

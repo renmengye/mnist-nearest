@@ -51,7 +51,7 @@ end
 -------------------------------------------------------------------------------
 local cmd = torch.CmdLine()
 cmd:text()
-cmd:text('Synthetic Counting Training')
+cmd:text('Synthetic Semantic Segmantation Training')
 cmd:text()
 cmd:text('Options:')
 cmd:option('-name', 'synthqa', 'name of the thing')
