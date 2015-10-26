@@ -244,7 +244,7 @@ local qdict, iqdict = imageqa.readDict(qdictPath)
 -- gtFile:close()
 
 local qFile = io.open(string.format('%s_questions.txt', opt.dataset), 'w')
-for i = 1, testPred:size(1) do
+for i = 1, data.testLabel:size(1) do
     local example = imageqa.decodeSentences(
         dataImgIdBowId.testData[{i, {2, -1}}], iqdict)
     qFile:write(example)
