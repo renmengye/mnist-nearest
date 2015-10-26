@@ -18,17 +18,24 @@ function run(data, printProgress, printNearestNeighbours)
     local bestK = 0
     local bestRate = -1.0
     logger:logInfo('Running on validation set')
-    -- numTest = data.validData:size()[1]
-    local numTest = 200
+    local numTest = data.validData:size()[1]
+    --local numTest = 200
 
     local processNearest
     if printNearestNeighbours then
-        local dictPath = '../image-qa/data/cocoqa/question_vocabs.txt'
+        local dictPath
+        if opt.dataset == 'cocoqa' then
+            dictPath = '../image-qa/data/cocoqa/question_vocabs.txt'
+        elseif opt.dataset == 'daquar' then
+            dictPath = '../image-qa/data/daquar-37/question_vocabs.txt'
+        end
         local qdict, iqdict = imageqa.readDict(dictPath)
-        local dataId = imageqa.getid('cocoqa')
+        local dataId = imageqa.getid(opt.dataset)
         processNearest = function(id, neighbourIds)
-            local example = imageqa.decodeSentence(dataId. validData[{id, {2, 56}}], iqdict)
-            local neighbours = imageqa.decodeSentence(dataId.trainData:index(1, neighbourIds)[{{}, {2, 56}}], iqdict)
+            local example = imageqa.decodeSentences(
+                dataId.validData[{id, {2, -1}}], iqdict)
+            local neighbours = imageqa.decodeSentences(
+                dataId.trainData:index(1, neighbourIds)[{{}, {2, -1}}], iqdict)
             logger:logInfo(string.format('T: %s', example))
             for i, s in ipairs(neighbours) do
                 logger:logInfo(string.format('N: %s', s))
@@ -37,7 +44,7 @@ function run(data, printProgress, printNearestNeighbours)
     else
         processNearest = nil
     end
-    for k = 1 : 61 : 2 do
+    for k = 1, 61, 2 do
         local validPred = knn.runAll(
             k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
         local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
@@ -209,7 +216,7 @@ else
 end
 local adict, iadict = imageqa.readDict(dictPath)
 local testPred, testLabelSubset
-testPred, testLabelSubset = run(data, false, true)
+testPred, testLabelSubset = run(data, true, false)
 local outputFile = io.open(opt.output, 'w')
 for i = 1, testPred:size(1) do
     outputFile:write(iadict[testPred[i] + 1])
