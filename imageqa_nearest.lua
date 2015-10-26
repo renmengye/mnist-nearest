@@ -57,7 +57,7 @@ function run(data, printProgress, printNearestNeighbours)
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
     local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
     utils.evalPrediction(testPred, testLabelSubset)
-    return testPred
+    return testPred, testLabelSubset
 end
 
 function getOneHot(data, vocabSize)
@@ -101,8 +101,15 @@ cmd:option('-trained_word_embed', false, 'Whether to use trained word embedding 
 cmd:option('-image_only', false, 'Only run on image features')
 cmd:option('-text_only', false, 'Only run on BOW vectors')
 cmd:option('-output', 'imageqa_nearest_out.txt', 'Output file')
+cmd:option('-gt', 'imageqa_nearest_gt.txt', 'Ground truth file')
 cmd:text()
 opt = cmd:parse(arg)
+
+logger:logInfo('--- command line options ---')
+for key, value in pairs(opt) do
+    logger:logInfo(string.format('%s: %s', key, value))
+end
+logger:logInfo('----------------------------')
 
 local dataPath
 if opt.normimg and opt.normbow then
@@ -188,15 +195,20 @@ else
     end
 end
 
--- print(data.trainData[1])
 collectgarbage()
 
 local dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
 local adict, iadict = imageqa.readDict(dictPath)
-local testPred = run(data, false, true)
+local testPred, testLabelSubset = run(data, false, true)
 local outputFile = io.open(opt.output, 'w')
 for i = 1, testPred:size(1) do
     outputFile:write(iadict[testPred[i]])
     outputFile:write('\n')
 end
-outputFile:close(outputFile)
+outputFile:close()
+local gtFile = io.open(opt.gt, 'w')
+for i = 1, testLabelSubset:size(1) do
+    gtFile:write(iadict[testLabelSubset[i]])
+    gtFile:write('\n')
+end
+gtFile:close()
