@@ -51,13 +51,12 @@ function run(data, printProgress, printNearestNeighbours)
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
-    numTest = 1
+    numTest = 10
     -- numTest = data.testData:size()[1]
     local testPred = knn.runAll(
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
     local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
     utils.evalPrediction(testPred, testLabelSubset)
-    print(testLabelSubset)
     return testPred, testLabelSubset
 end
 
@@ -210,11 +209,7 @@ end
 outputFile:close()
 local gtFile = io.open(opt.gt, 'w')
 for i = 1, testLabelSubset:size(1) do
-    print(testLabelSubset)
-    print(testLabelSubset[i])
-    logger:logInfo(testLabelSubset[i])
-    logger:logInfo(iadict[testLabelSubset[i][1]])
-    gtFile:write(iadict[testLabelSubset[i]])
+    gtFile:write(iadict[testLabelSubset[i][1]])
     gtFile:write('\n')
 end
 gtFile:close()
