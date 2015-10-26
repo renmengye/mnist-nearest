@@ -37,17 +37,17 @@ function run(data, printProgress, printNearestNeighbours)
     else
         processNearest = nil
     end
-    -- for k = 13 : 13 do
-    --     local validPred = knn.runAll(
-    --         k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
-    --     local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
-    --     local rate = utils.evalPrediction(validPred, validLabelSubset)
-    --     if rate > bestRate then
-    --         bestRate = rate
-    --         bestK = k
-    --     end
-    -- end
-    bestK = 13
+    for k = 1 : 61 : 2 do
+        local validPred = knn.runAll(
+            k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
+        local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
+        local rate = utils.evalPrediction(validPred, validLabelSubset)
+        if rate > bestRate then
+            bestRate = rate
+            bestK = k
+        end
+    end
+    -- bestK = 13
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
@@ -102,6 +102,7 @@ cmd:option('-image_only', false, 'Only run on image features')
 cmd:option('-text_only', false, 'Only run on BOW vectors')
 cmd:option('-output', 'imageqa_nearest_out.txt', 'Output file')
 cmd:option('-gt', 'imageqa_nearest_gt.txt', 'Ground truth file')
+cmd:option('-dataset', 'cocoqa', 'Name of the dataset')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -112,20 +113,21 @@ end
 logger:logInfo('----------------------------')
 
 local dataPath
+local dataFolder = string.format('../../data/%s-nearest', opt.dataset)
 if opt.normimg and opt.normbow then
-    dataPath = '../../data/cocoqa-nearest/all_inorm_bnorm.h5'
+    dataPath = string.format('%s/all_inorm_bnorm.h5', dataFolder)
 elseif opt.normbow then
-    dataPath = '../../data/cocoqa-nearest/all_iraw_bnorm.h5'
+    dataPath = string.format('%s/all_iraw_bnorm.h5', dataFolder)
 elseif opt.normimg then
-    dataPath = '../../data/cocoqa-nearest/all_inorm_braw.h5'
+    dataPath = string.format('%s/all_inorm_braw.h5', dataFolder)
 else
-    dataPath = '../../data/cocoqa-nearest/all_iraw_braw.h5'
+    dataPath = string.format('%s/all_iraw_braw.h5', dataFolder)
 end
 
 logger:logInfo(string.format('Data: %s', dataPath))
 local dataImgFeatureBowFeature = hdf5.open(dataPath, 'r'):all()
 
-dataIdPath = '../../data/cocoqa-nearest/all_id.h5'
+dataIdPath = string.format('%s/all_id.h5', dataFolder)
 local dataImgIdBowId = hdf5.open(dataIdPath, 'r'):all()
 local data
 
@@ -197,7 +199,14 @@ end
 
 collectgarbage()
 
-local dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
+local dictPath
+if opt.dataset == 'cocoqa' then
+    dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
+elseif opt.dataset == 'daquar' then
+    dictPath = '../image-qa/data/daquar-37/answer_vocabs.txt'
+else
+    logger:logFatal(string.format('Unknown dataset: %s', opt.dataset))
+end
 local adict, iadict = imageqa.readDict(dictPath)
 local testPred, testLabelSubset
 testPred, testLabelSubset = run(data, false, true)
