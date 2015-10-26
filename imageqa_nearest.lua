@@ -51,8 +51,8 @@ function run(data, printProgress, printNearestNeighbours)
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
-    numTest = 10
-    -- numTest = data.testData:size()[1]
+    -- numTest = 10
+    numTest = data.testData:size()[1]
     local testPred = knn.runAll(
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
     local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
