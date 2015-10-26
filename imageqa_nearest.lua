@@ -44,21 +44,24 @@ function run(data, printProgress, printNearestNeighbours)
     else
         processNearest = nil
     end
-    for k = 1, 61, 2 do
-        local validPred = knn.runAll(
-            k, data.trainData, data.trainLabel, data.validData, numTest, printProgress, processNearest)
-        local validLabelSubset = data.validLabel:index(1, torch.range(1, numTest):long())
-        local rate = utils.evalPrediction(validPred, validLabelSubset)
-        if rate > bestRate then
-            bestRate = rate
-            bestK = k
-        end
-    end
+    -- for k = 1, 61, 2 do
+    --     local validPred = knn.runAll(
+    --         k, data.trainData, data.trainLabel, data.validData, 
+    --         numTest, printProgress, processNearest)
+    --     local validLabelSubset = data.validLabel:index(1, 
+    --         torch.range(1, numTest):long())
+    --     local rate = utils.evalPrediction(validPred, validLabelSubset)
+    --     if rate > bestRate then
+    --         bestRate = rate
+    --         bestK = k
+    --     end
+    -- end
     -- bestK = 13
+    bestK = 31
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
-    -- numTest = 10
+    --numTest = 10
     numTest = data.testData:size()[1]
     local testPred = knn.runAll(
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
@@ -225,7 +228,14 @@ end
 outputFile:close()
 local gtFile = io.open(opt.gt, 'w')
 for i = 1, testLabelSubset:size(1) do
-    gtFile:write(iadict[testLabelSubset[i][1]])
-    gtFile:write('\n')
+    local wordid = testLabelSubset[i][1]
+    local word = iadict[wordid]
+    if word ~= nil then
+        gtFile:write(word)
+        gtFile:write('\n')
+    else
+        logger:logError(string.format('N: %d No found word: %d', i, wordid))
+        gtFile:write('NILNIL\n')
+    end
 end
 gtFile:close()
