@@ -213,6 +213,7 @@ for i = 1, testLabelSubset:size(1) do
     print(testLabelSubset)
     print(testLabelSubset[i])
     logger:logInfo(testLabelSubset[i])
+    logger:logInfo(iadict[testLabelSubset[i][1]])
     gtFile:write(iadict[testLabelSubset[i]])
     gtFile:write('\n')
 end
