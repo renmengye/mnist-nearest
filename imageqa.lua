@@ -176,8 +176,8 @@ end
 function imageqa.getid(dataset)
     if dataset == 'cocoqa' then
         dataPath = '../../data/cocoqa-nearest/all_id.h5'
-    elseif dataset == 'daquar-37' then
-        dataPath = ''
+    elseif dataset == 'daquar' then
+        dataPath = '../../data/daquar-nearest/all_id.h5'
     else
         logger:logFatal(string.format('No dataset found: %s', dataset))
     end
