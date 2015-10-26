@@ -8,14 +8,13 @@ local logger = Logger()
 torch.manualSeed(2)
 torch.setdefaulttensortype('torch.FloatTensor')
 
-function run(data, printProgress, printNearestNeighbours)
+function run(data, printProgress, printNearestNeighbours, bestK)
     if printNearestNeighbours == nil then
         printNearestNeighbours = false
     end
     local trainPlusValidData = torch.cat(data.trainData, data.validData, 1)
     local trainPlusValidLabel = torch.cat(data.trainLabel, data.validLabel, 1)
 
-    local bestK = 0
     local bestRate = -1.0
     logger:logInfo('Running on validation set')
     local numTest = data.validData:size()[1]
@@ -44,19 +43,22 @@ function run(data, printProgress, printNearestNeighbours)
     else
         processNearest = nil
     end
-    -- for k = 1, 61, 2 do
-    --     local validPred = knn.runAll(
-    --         k, data.trainData, data.trainLabel, data.validData, 
-    --         numTest, printProgress, processNearest)
-    --     local validLabelSubset = data.validLabel:index(1, 
-    --         torch.range(1, numTest):long())
-    --     local rate = utils.evalPrediction(validPred, validLabelSubset)
-    --     if rate > bestRate then
-    --         bestRate = rate
-    --         bestK = k
-    --     end
-    -- end
-    bestK = 13
+
+    if bestK == nil then
+        for k = 1, 61, 2 do
+            local validPred = knn.runAll(
+                k, data.trainData, data.trainLabel, data.validData, 
+                numTest, printProgress, processNearest)
+            local validLabelSubset = data.validLabel:index(1, 
+                torch.range(1, numTest):long())
+            local rate = utils.evalPrediction(validPred, validLabelSubset)
+            if rate > bestRate then
+                bestRate = rate
+                bestK = k
+            end
+        end
+    end
+    -- bestK = 13
     -- bestK = 31
     logger:logInfo(string.format('Best K is %d', bestK))
 
@@ -113,6 +115,7 @@ cmd:option('-text_only', false, 'Only run on BOW vectors')
 cmd:option('-output', 'imageqa_nearest_out.txt', 'Output file')
 cmd:option('-gt', 'imageqa_nearest_gt.txt', 'Ground truth file')
 cmd:option('-dataset', 'cocoqa', 'Name of the dataset')
+cmd:option('-k', nil, 'Run on specific k')
 cmd:text()
 opt = cmd:parse(arg)
 
@@ -222,7 +225,7 @@ local adict, iadict = imageqa.readDict(adictPath)
 local qdict, iqdict = imageqa.readDict(qdictPath)
 
 local testPred, testLabelSubset
-testPred, testLabelSubset = run(data, true, false)
+testPred, testLabelSubset = run(data, true, false, opt.k)
 local outputFile = io.open(opt.output, 'w')
 for i = 1, testPred:size(1) do
     outputFile:write(iadict[testPred[i] + 1])
