@@ -211,6 +211,7 @@ outputFile:close()
 local gtFile = io.open(opt.gt, 'w')
 for i = 1, testLabelSubset:size(1) do
     print(testLabelSubset)
+    print(testLabelSubset[i])
     logger:logInfo(testLabelSubset[i])
     gtFile:write(iadict[testLabelSubset[i]])
     gtFile:write('\n')
