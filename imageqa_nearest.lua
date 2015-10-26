@@ -222,13 +222,13 @@ local testPred, testLabelSubset
 testPred, testLabelSubset = run(data, true, false)
 local outputFile = io.open(opt.output, 'w')
 for i = 1, testPred:size(1) do
-    outputFile:write(iadict[testPred[i]])
+    outputFile:write(iadict[testPred[i] + 1])
     outputFile:write('\n')
 end
 outputFile:close()
 local gtFile = io.open(opt.gt, 'w')
 for i = 1, testLabelSubset:size(1) do
-    local wordid = testLabelSubset[i][1]
+    local wordid = testLabelSubset[i][1] + 1
     local word = iadict[wordid]
     if word ~= nil then
         gtFile:write(word)
