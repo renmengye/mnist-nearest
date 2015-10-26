@@ -51,12 +51,13 @@ function run(data, printProgress, printNearestNeighbours)
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
-    numTest = 10
+    numTest = 1
     -- numTest = data.testData:size()[1]
     local testPred = knn.runAll(
         bestK, trainPlusValidData, trainPlusValidLabel, data.testData, numTest)
     local testLabelSubset = data.testLabel:index(1, torch.range(1, numTest):long())
     utils.evalPrediction(testPred, testLabelSubset)
+    print(testLabelSubset)
     return testPred, testLabelSubset
 end
 
@@ -199,7 +200,8 @@ collectgarbage()
 
 local dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
 local adict, iadict = imageqa.readDict(dictPath)
-local testPred, testLabelSubset = run(data, false, true)
+local testPred, testLabelSubset
+testPred, testLabelSubset = run(data, false, true)
 local outputFile = io.open(opt.output, 'w')
 for i = 1, testPred:size(1) do
     outputFile:write(iadict[testPred[i]])
@@ -208,6 +210,8 @@ end
 outputFile:close()
 local gtFile = io.open(opt.gt, 'w')
 for i = 1, testLabelSubset:size(1) do
+    print(testLabelSubset)
+    logger:logInfo(testLabelSubset[i])
     gtFile:write(iadict[testLabelSubset[i]])
     gtFile:write('\n')
 end
