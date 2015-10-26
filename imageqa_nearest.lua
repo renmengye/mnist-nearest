@@ -56,8 +56,8 @@ function run(data, printProgress, printNearestNeighbours)
     --         bestK = k
     --     end
     -- end
-    -- bestK = 13
-    bestK = 31
+    bestK = 13
+    -- bestK = 31
     logger:logInfo(string.format('Best K is %d', bestK))
 
     logger:logInfo('Running on test set')
