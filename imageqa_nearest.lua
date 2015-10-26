@@ -44,7 +44,7 @@ function run(data, printProgress, printNearestNeighbours, bestK)
         processNearest = nil
     end
 
-    if bestK == nil then
+    if bestK == 0 or bestK == nil then
         for k = 1, 61, 2 do
             local validPred = knn.runAll(
                 k, data.trainData, data.trainLabel, data.validData, 
@@ -115,7 +115,7 @@ cmd:option('-text_only', false, 'Only run on BOW vectors')
 cmd:option('-output', 'imageqa_nearest_out.txt', 'Output file')
 cmd:option('-gt', 'imageqa_nearest_gt.txt', 'Ground truth file')
 cmd:option('-dataset', 'cocoqa', 'Name of the dataset')
-cmd:option('-k', nil, 'Run on specific k')
+cmd:option('-k', 0, 'Run on specific k')
 cmd:text()
 opt = cmd:parse(arg)
 
