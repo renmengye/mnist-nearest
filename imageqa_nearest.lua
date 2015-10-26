@@ -139,7 +139,6 @@ local dataImgFeatureBowFeature = hdf5.open(dataPath, 'r'):all()
 
 dataIdPath = string.format('%s/all_id.h5', dataFolder)
 local dataImgIdBowId = hdf5.open(dataIdPath, 'r'):all()
-local data
 
 if opt.image_only then
     logger:logInfo('Use image features only')
@@ -209,33 +208,46 @@ end
 
 collectgarbage()
 
-local dictPath
+local qdictPath, adictPath
 if opt.dataset == 'cocoqa' then
-    dictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
+    adictPath = '../image-qa/data/cocoqa/answer_vocabs.txt'
+    qdictPath = '../image-qa/data/cocoqa/question_vocabs.txt'
 elseif opt.dataset == 'daquar' then
-    dictPath = '../image-qa/data/daquar-37/answer_vocabs.txt'
+    adictPath = '../image-qa/data/daquar-37/answer_vocabs.txt'
+    qdictPath = '../image-qa/data/daquar-37/question_vocabs.txt'
 else
     logger:logFatal(string.format('Unknown dataset: %s', opt.dataset))
 end
-local adict, iadict = imageqa.readDict(dictPath)
-local testPred, testLabelSubset
-testPred, testLabelSubset = run(data, true, false)
-local outputFile = io.open(opt.output, 'w')
+local adict, iadict = imageqa.readDict(adictPath)
+local qdict, iqdict = imageqa.readDict(qdictPath)
+
+-- local testPred, testLabelSubset
+-- testPred, testLabelSubset = run(data, true, false)
+-- local outputFile = io.open(opt.output, 'w')
+-- for i = 1, testPred:size(1) do
+--     outputFile:write(iadict[testPred[i] + 1])
+--     outputFile:write('\n')
+-- end
+-- outputFile:close()
+-- local gtFile = io.open(opt.gt, 'w')
+-- for i = 1, testLabelSubset:size(1) do
+--     local wordid = testLabelSubset[i][1] + 1
+--     local word = iadict[wordid]
+--     if word ~= nil then
+--         gtFile:write(word)
+--         gtFile:write('\n')
+--     else
+--         logger:logError(string.format('N: %d No found word: %d', i, wordid))
+--         gtFile:write('NILNIL\n')
+--     end
+-- end
+-- gtFile:close()
+
+local qFile = io.open(string.format('%s_questions.txt', opt.dataset), 'w')
 for i = 1, testPred:size(1) do
-    outputFile:write(iadict[testPred[i] + 1])
-    outputFile:write('\n')
+    local example = imageqa.decodeSentences(
+        dataImgIdBowId.testData[{i, {2, -1}}], iqdict)
+    qFile:write(example)
+    qFile:write('\n')
 end
-outputFile:close()
-local gtFile = io.open(opt.gt, 'w')
-for i = 1, testLabelSubset:size(1) do
-    local wordid = testLabelSubset[i][1] + 1
-    local word = iadict[wordid]
-    if word ~= nil then
-        gtFile:write(word)
-        gtFile:write('\n')
-    else
-        logger:logError(string.format('N: %d No found word: %d', i, wordid))
-        gtFile:write('NILNIL\n')
-    end
-end
-gtFile:close()
+qFile:close()
