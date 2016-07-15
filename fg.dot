@@ -1,0 +1,78 @@
+digraph G {
+	graph [bb="0,0,462,886"];
+	node [label="\N",
+		shape=oval
+	];
+	n1	 [height=0.74639,
+		label="Node1\nmodule = nn.Linear(4596 -> 431)",
+		pos="217,117",
+		tooltip="[test_sparse.lua]:44",
+		width=3.9798];
+	n2	 [height=0.74639,
+		label="Node2\ninput = {}",
+		pos="217,27",
+		tooltip="[[C]]:-1",
+		width=1.449];
+	n1 -> n2	 [pos="e,217,54.046 217,90.073 217,81.999 217,72.943 217,64.296"];
+	n3	 [height=1.041,
+		label="Node3\nmodule = nn.JoinTable\lmapindex = {Node4,Node5}",
+		pos="217,218",
+		tooltip="[test_sparse.lua]:43",
+		width=3.4507];
+	n3 -> n1	 [pos="e,217,143.92 217,180.42 217,171.8 217,162.63 217,154.04"];
+	n4	 [height=0.74639,
+		label="Node4\nmodule = nn.Embedding",
+		pos="108,499",
+		tooltip="[test_sparse.lua]:39",
+		width=3.0124];
+	n4 -> n3	 [pos="e,202.74,255.5 118.16,472 136.63,424.72 175.95,324.08 199.04,264.97"];
+	n5	 [height=0.74639,
+		label="Node5\nmodule = nn.Sum",
+		pos="290,319",
+		tooltip="[test_sparse.lua]:42",
+		width=2.2781];
+	n5 -> n3	 [pos="e,243.29,254.65 271.39,292.76 264.66,283.63 256.85,273.04 249.28,262.77"];
+	n6	 [height=0.74639,
+		label="Node6\nmodule = nn.Select",
+		pos="114,589",
+		tooltip="[test_sparse.lua]:36",
+		width=2.4261];
+	n6 -> n4	 [pos="e,109.78,526.05 112.23,562.07 111.68,554 111.06,544.94 110.47,536.3"];
+	n7	 [height=0.74639,
+		label="Node7\nmodule = nn.Reshape(1x3x500)",
+		pos="326,409",
+		tooltip="[test_sparse.lua]:41",
+		width=3.7843];
+	n7 -> n5	 [pos="e,300.53,345.74 315.39,382.07 311.95,373.66 308.07,364.18 304.4,355.2"];
+	n8	 [height=0.74639,
+		label="Node8\nmodule = nn.Identity",
+		pos="197,769",
+		tooltip="[test_sparse.lua]:35",
+		width=2.6117];
+	n8 -> n6	 [pos="e,125.95,615.63 184.93,742.12 170.51,711.18 146.31,659.28 130.25,624.84"];
+	n12	 [height=0.74639,
+		label="Node12\nmodule = nn.Narrow",
+		pos="304,679",
+		tooltip="[test_sparse.lua]:37",
+		width=2.588];
+	n8 -> n12	 [pos="e,273.98,704.69 226.81,743.49 238.99,733.46 253.24,721.75 266.15,711.13"];
+	n9	 [height=0.74639,
+		label="Node9\nmodule = nn.Embedding",
+		pos="344,499",
+		tooltip="[test_sparse.lua]:40",
+		width=3.0124];
+	n9 -> n7	 [pos="e,331.33,436.05 338.7,472.07 337.03,463.91 335.15,454.74 333.37,446.01"];
+	n10	 [height=0.74639,
+		label="Node10\ninput = {}",
+		pos="197,859",
+		tooltip="[[C]]:-1",
+		width=1.449];
+	n10 -> n8	 [pos="e,197,796.05 197,832.07 197,824 197,814.94 197,806.3"];
+	n11	 [height=0.74639,
+		label="Node11\nmodule = nn.Reshape(3)",
+		pos="338,589",
+		tooltip="[test_sparse.lua]:38",
+		width=2.9789];
+	n11 -> n9	 [pos="e,342.22,526.05 339.77,562.07 340.32,554 340.94,544.94 341.53,536.3"];
+	n12 -> n11	 [pos="e,327.94,616.05 314.02,652.07 317.24,643.73 320.87,634.34 324.31,625.44"];
+}

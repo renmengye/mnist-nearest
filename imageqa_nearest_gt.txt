@@ -1,0 +1,10 @@
+counter
+bear
+giraffe
+cellphone
+carrots
+window
+shelf
+boats
+coffee
+bus

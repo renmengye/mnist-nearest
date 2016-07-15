@@ -1,0 +1,10 @@
+counter
+bear
+giraffe
+orange
+carrots
+airplane
+door
+boats
+carriage
+bus
